@@ -26,6 +26,8 @@ services:
       AI_INTEGRATIONS_OPENAI_BASE_URL: ${AI_INTEGRATIONS_OPENAI_BASE_URL}
     networks:
       - chiguru-net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
   nginx:
     image: ${DOCKERHUB_USER}/chiguru-nginx:latest
@@ -42,6 +44,18 @@ services:
       - certbot_www:/var/www/certbot
     networks:
       - chiguru-net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Polls Docker Hub every 5 minutes; only touches containers labeled
+  # watchtower.enable=true above (api-server, nginx) — leaves postgres and
+  # certbot alone since those images aren't rebuilt by the CI pipeline.
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 --label-enable --cleanup
 
   certbot:
     image: certbot/certbot:latest
