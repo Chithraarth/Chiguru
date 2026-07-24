@@ -149,15 +149,15 @@ export function PageShell({ title, children, back, onBack, action, leftAction, c
               <Link key={href} href={href} className="flex-1 min-w-0 flex items-center justify-center">
                 <button
                   className={cn(
-                    "flex items-center justify-center gap-1.5 transition-all duration-300",
+                    "flex items-center justify-center gap-1.5 transition-all duration-300 w-full min-w-0",
                     active
-                      ? "bg-[#DDE2FF] text-[#231F3A] px-4 py-2.5 rounded-full"
+                      ? "bg-[#DDE2FF] text-[#231F3A] px-3 py-2.5 rounded-full"
                       : "text-white/60 hover:text-white/90 p-2"
                   )}
                 >
-                  <Icon className={cn("h-5 w-5", active && "stroke-[2.5]")} />
+                  <Icon className={cn("h-5 w-5 shrink-0", active && "stroke-[2.5]")} />
                   {active && (
-                    <span className="text-[11px] font-semibold leading-none truncate">{t(key)}</span>
+                    <span className="text-[11px] font-semibold leading-none truncate min-w-0">{t(key)}</span>
                   )}
                 </button>
               </Link>
