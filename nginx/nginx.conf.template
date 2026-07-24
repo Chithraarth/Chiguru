@@ -1,0 +1,53 @@
+# ${DOMAIN} is substituted at container startup by nginx's built-in
+# docker-entrypoint envsubst step (this file lives under /etc/nginx/templates/,
+# which triggers that automatically). Nginx's own variables below use a single
+# $ (e.g. $host, $uri) so envsubst leaves them untouched.
+
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    # Required for certbot's http-01 challenge to reach this container.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    # Photo-heavy payloads (attendance/loan proof photos, daily updates) —
+    # matches the 20mb body limit the api-server itself accepts.
+    client_max_body_size 25m;
+
+    # manager-app static build (own base path, own workspace)
+    location /manager/ {
+        alias /usr/share/nginx/html/manager/;
+        try_files $uri $uri/ /manager/index.html;
+    }
+
+    # api-server (also handles the Clerk frontend-API proxy at /api/__clerk)
+    location /api/ {
+        proxy_pass http://api-server:3000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # farm-app static build (root)
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ /index.html;
+    }
+}

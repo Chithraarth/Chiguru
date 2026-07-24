@@ -1,0 +1,121 @@
+import { enqueueSync, fetchWithTimeout, looksLikeOurApi } from "./offline-db";
+
+// A stalled request on a flaky network should fall back to the offline queue, not
+// hang the UI. Abort the immediate submit after this long and queue it for retry.
+const SUBMIT_TIMEOUT_MS = 20_000;
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+export function apiUrl(path: string) {
+  return `${BASE}/api${path}`;
+}
+
+/** localStorage key holding the id of the estate the planter is currently viewing. */
+export const ACTIVE_ESTATE_KEY = "activeEstateId";
+
+/** Read the active estate id from localStorage (null if none picked yet). */
+export function getActiveEstateId(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_ESTATE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every request must carry the active estate so the API scopes data to it. We add
+ * X-Estate-Id here (not per call site) so it can never be forgotten.
+ */
+function withEstateHeader(headers: HeadersInit): HeadersInit {
+  const eid = getActiveEstateId();
+  if (!eid) return headers;
+  return { ...headers, "X-Estate-Id": eid };
+}
+
+/**
+ * Headers with the active estate id, for the few call sites that must use raw
+ * fetch (e.g. media uploads in daily-update) instead of apiFetch/apiMutate.
+ */
+export function estateHeaders(extra?: HeadersInit): HeadersInit {
+  return withEstateHeader({ "Content-Type": "application/json", ...(extra ?? {}) });
+}
+
+/** Error thrown by apiFetch on a non-2xx response, carrying the HTTP status. */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    ...options,
+    headers: withEstateHeader({
+      "Content-Type": "application/json",
+      ...(options?.headers ?? {}),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "Unknown error");
+    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
+export async function apiMutate<T>(
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown
+): Promise<T | null> {
+  // navigator.onLine only reflects a local interface, not real reachability, so we
+  // don't trust it as the only gate — but if it's clearly offline, skip the attempt.
+  if (!navigator.onLine) {
+    await enqueueSync({ method, url: apiUrl(path), body });
+    return null;
+  }
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      apiUrl(path),
+      {
+        method,
+        headers: withEstateHeader({ "Content-Type": "application/json" }),
+        body: body ? JSON.stringify(body) : undefined,
+      },
+      SUBMIT_TIMEOUT_MS,
+    );
+  } catch (err) {
+    // Network failure or a stalled request we aborted — queue it and let the sync
+    // loop retry once we have real connectivity.
+    await enqueueSync({ method, url: apiUrl(path), body });
+    throw err;
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "Unknown error");
+    // 5xx is transient (server restarting/overloaded) → queue for retry. A 4xx is a
+    // definitive rejection (validation, not-found); retrying won't help and would
+    // poison the queue, so surface it without queueing.
+    if (res.status >= 500) {
+      await enqueueSync({ method, url: apiUrl(path), body });
+    }
+    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`);
+  }
+
+  // A captive portal / ISP login page can answer 200 with an HTML body. res.ok
+  // passes but this isn't our API and the write never reached the server, so treat
+  // it like a connectivity failure: queue it and surface an error (don't return as
+  // if it succeeded).
+  if (!looksLikeOurApi(res)) {
+    await enqueueSync({ method, url: apiUrl(path), body });
+    throw new ApiError(res.status, `API ${path} → got non-API response (captive portal?)`);
+  }
+
+  if (res.status === 204) return null;
+  return res.json();
+}
