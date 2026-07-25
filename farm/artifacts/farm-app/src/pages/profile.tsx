@@ -234,7 +234,7 @@ export default function ProfilePage() {
                       {myFarms.map((f) => (
                         <div key={f.id} className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800 truncate">{f.farmName}</p>
+                            <p className="text-sm font-medium text-gray-800 truncate capitalize">{f.farmName}</p>
                             {(f.village || f.district) && (
                               <p className="text-xs text-gray-400 truncate">{[f.village, f.district].filter(Boolean).join(", ")}</p>
                             )}

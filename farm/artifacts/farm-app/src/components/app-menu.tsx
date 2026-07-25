@@ -13,9 +13,11 @@ import {
 import { useT } from "@/lib/i18n";
 import { currencyForCountry, storeCurrency } from "@/lib/currency";
 import { apiMutate } from "@/lib/api";
+import { RateAppSheet } from "@/components/rate-app-sheet";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// "menu.rate" has no href — it opens the in-app rating sheet instead of navigating.
 const MENU_ITEMS = [
   { href: "/profile", icon: UserCircle2, key: "menu.profile" },
   { href: "/profile", icon: CloudUpload, key: "menu.backup" },
@@ -25,11 +27,12 @@ const MENU_ITEMS = [
   { href: "/help", icon: LifeBuoy, key: "more.helpline" },
   { href: "/bin", icon: Trash2, key: "menu.bin" },
   { href: "/settings", icon: Settings, key: "more.settings" },
-  { href: "/help", icon: Star, key: "menu.rate" },
+  { href: null, icon: Star, key: "menu.rate" },
 ];
 
 export function AppMenu() {
   const [open, setOpen] = useState(false);
+  const [rateOpen, setRateOpen] = useState(false);
   const [country, setCountry] = useState<string | null>(readStoredCountry);
   const [countryOpen, setCountryOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
@@ -122,7 +125,14 @@ export function AppMenu() {
               {MENU_ITEMS.map(({ href, icon: Icon, key }) => (
                 <button
                   key={key}
-                  onClick={() => go(href)}
+                  onClick={() => {
+                    if (href) {
+                      go(href);
+                    } else {
+                      setOpen(false);
+                      setRateOpen(true);
+                    }
+                  }}
                   className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 active:bg-gray-100 text-left"
                 >
                   <Icon className="h-5 w-5 text-primary shrink-0" />
@@ -235,6 +245,8 @@ export function AppMenu() {
         </div>,
         document.body
       )}
+
+      <RateAppSheet open={rateOpen} onClose={() => setRateOpen(false)} />
     </>
   );
 }
