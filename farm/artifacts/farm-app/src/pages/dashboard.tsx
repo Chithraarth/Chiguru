@@ -119,11 +119,11 @@ export default function Dashboard() {
       leftAction={
         <Link href="/mandi">
           <button
-            aria-label="Mandi Prices"
+            aria-label="Market Prices"
             className="flex flex-col items-center justify-center -ml-1 px-1.5 py-0.5 rounded-lg hover:bg-foreground/5 active:bg-foreground/5 transition-colors"
           >
             <Store className="h-5 w-5" />
-            <span className="text-[9px] font-semibold leading-none mt-0.5">Mandi</span>
+            <span className="text-[9px] font-semibold leading-none mt-0.5">Market</span>
           </button>
         </Link>
       }

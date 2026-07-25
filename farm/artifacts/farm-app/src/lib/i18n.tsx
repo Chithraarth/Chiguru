@@ -76,7 +76,7 @@ const en: Dict = {
   "more.diseaseDetect": "Disease Check",
   "more.agriAdvisor": "Agri Advisor",
   "more.subscription": "Subscription",
-  "more.managerDevices": "Devices",
+  "more.managerDevices": "Manager Device",
   "more.crops": "Crops",
   "more.myFarms": "My Farms",
   "more.loans": "Loans",
