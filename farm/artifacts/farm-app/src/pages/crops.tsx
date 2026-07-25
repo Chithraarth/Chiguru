@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiFetch, apiMutate } from "@/lib/api";
+import { apiFetch, apiMutate, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useT } from "@/lib/i18n";
 import { useEstate, type Estate } from "@/lib/use-estate";
@@ -118,6 +118,13 @@ export default function Crops() {
   // ── Estate form ───────────────────────────────────────────────────────────────
   const estateFormHook = useForm<EstateForm>();
 
+  // Surfaces the server's actual message (e.g. "You've reached your estate
+  // limit…") instead of a generic "Error" — falls back to `fallback` only
+  // when the server didn't send a JSON body (network failure, 5xx, etc.).
+  function errorMessage(err: unknown, fallback: string): string {
+    return (err instanceof ApiError && err.body?.message) || fallback;
+  }
+
   const createEstate = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiMutate<Estate>("POST", "/estates", data),
     onSuccess: (row) => {
@@ -127,7 +134,7 @@ export default function Crops() {
       toast({ title: t("estate.saved") });
       if (row?.id) setActiveEstate(row.id);
     },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
+    onError: (err) => toast({ title: errorMessage(err, "Error"), variant: "destructive" }),
   });
 
   const updateEstate = useMutation({
@@ -141,7 +148,7 @@ export default function Crops() {
       estateFormHook.reset();
       toast({ title: t("estate.saved") });
     },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
+    onError: (err) => toast({ title: errorMessage(err, "Error"), variant: "destructive" }),
   });
 
   const deleteEstate = useMutation({
@@ -150,7 +157,7 @@ export default function Crops() {
       qc.invalidateQueries({ queryKey: ["estates"] });
       toast({ title: t("estate.removed") });
     },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
+    onError: (err) => toast({ title: errorMessage(err, "Error"), variant: "destructive" }),
   });
 
   // ── Crop handlers ───────────────────────────────────────────────────────────
