@@ -19,7 +19,13 @@ interface Spray {
   litresUsed: number; areaAcres: number;
   cost: number; weatherCondition?: string;
 }
-interface Crop { id: number; name: string }
+interface Crop { id: number; name: string; variety?: string }
+
+// Two crops can share a name (e.g. "Coffee" in different blocks/varieties) —
+// append the variety so the dropdown never shows indistinguishable duplicates.
+function cropLabel(c: Crop): string {
+  return c.variety ? `${c.name} (${c.variety})` : c.name;
+}
 
 const PRODUCT_TYPES = ["Fungicide", "Insecticide", "Herbicide", "Foliar fertilizer", "Bio-pesticide", "Other"];
 const WEATHER = ["Clear", "Cloudy", "Light rain risk", "Humid", "Windy"];
@@ -190,7 +196,7 @@ export default function Sprays() {
                 <Select value={cropSel || undefined} onValueChange={setCropSel}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="All crops" /></SelectTrigger>
                   <SelectContent>
-                    {crops.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                    {crops.map((c) => <SelectItem key={c.id} value={String(c.id)}>{cropLabel(c)}</SelectItem>)}
                     <SelectItem value="__new__">
                       <span className="text-primary font-medium">✏️ Type new crop</span>
                     </SelectItem>

@@ -89,7 +89,7 @@ export function HomeScreen({ pairing, estates, activeEstateId, onSwitchEstate, o
                   className={`flex items-center gap-1 font-bold leading-tight max-w-full ${canOpenMenu ? "active:opacity-80" : "cursor-default"}`}
                   aria-label={canOpenMenu ? "Estate options" : undefined}
                 >
-                  <span className="truncate">{estateName}</span>
+                  <span className="truncate capitalize">{estateName}</span>
                   {canOpenMenu && <ChevronDown className={`h-4 w-4 flex-shrink-0 transition-transform ${switcherOpen ? "rotate-180" : ""}`} />}
                 </button>
               </div>
@@ -124,7 +124,7 @@ export function HomeScreen({ pairing, estates, activeEstateId, onSwitchEstate, o
                     }}
                     className="flex-1 min-w-0 flex items-center justify-between px-4 py-3 text-left active:bg-gray-50"
                   >
-                    <span className={`text-sm font-medium truncate ${isActive ? "text-primary" : "text-gray-800"}`}>{e.farmName}</span>
+                    <span className={`text-sm font-medium truncate capitalize ${isActive ? "text-primary" : "text-gray-800"}`}>{e.farmName}</span>
                     {isActive && <Check className="h-4 w-4 text-primary flex-shrink-0 ml-2" />}
                   </button>
                   <button
@@ -231,7 +231,7 @@ export function HomeScreen({ pairing, estates, activeEstateId, onSwitchEstate, o
 
         <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 mt-2">
           <p className="text-xs text-primary/90 leading-relaxed">
-            Everything you record here goes straight to {estateName}'s records. The owner sees it instantly.
+            Everything you record here goes straight to <span className="capitalize">{estateName}</span>'s records. The owner sees it instantly.
           </p>
         </div>
       </div>
@@ -251,6 +251,7 @@ export function HomeScreen({ pairing, estates, activeEstateId, onSwitchEstate, o
               if (e.key === "Enter") void submitRename();
             }}
             placeholder="Estate name"
+            className="capitalize"
             autoFocus
             maxLength={80}
           />

@@ -55,7 +55,13 @@ function periodStart(p: PeriodFilter): string | null {
   }
   return toDayString(d);
 }
-interface Crop { id: number; name: string }
+interface Crop { id: number; name: string; variety?: string }
+
+// Two crops can share a name (e.g. "Coffee" in different blocks/varieties) —
+// append the variety so the dropdown never shows indistinguishable duplicates.
+function cropLabel(c: Crop): string {
+  return c.variety ? `${c.name} (${c.variety})` : c.name;
+}
 
 const CATEGORIES = [
   "Fertilizer", "Pesticide", "Fungicide", "Seeds / Seedlings",
@@ -493,7 +499,7 @@ export default function Expenses() {
               <Select value={cropSel || undefined} onValueChange={setCropSel}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="All crops / Farm-wide" /></SelectTrigger>
                 <SelectContent>
-                  {crops.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                  {crops.map((c) => <SelectItem key={c.id} value={String(c.id)}>{cropLabel(c)}</SelectItem>)}
                   <SelectItem value="__new__">
                     <span className="text-primary font-medium">✏️ Type new crop</span>
                   </SelectItem>

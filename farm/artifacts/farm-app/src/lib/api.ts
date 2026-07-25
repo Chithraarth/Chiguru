@@ -43,10 +43,23 @@ export function estateHeaders(extra?: HeadersInit): HeadersInit {
 /** Error thrown by apiFetch on a non-2xx response, carrying the HTTP status. */
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Parsed JSON error body (e.g. { message, code }), when the server sent one. */
+  body: { message?: string; code?: string } | null;
+  constructor(status: number, message: string, body: { message?: string; code?: string } | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.body = body;
+  }
+}
+
+/** Best-effort JSON parse of an error response body — never throws. */
+function parseErrorBody(text: string): { message?: string; code?: string } | null {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
   }
 }
 
@@ -60,7 +73,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
-    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`);
+    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`, parseErrorBody(text));
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -104,7 +117,7 @@ export async function apiMutate<T>(
     if (res.status >= 500) {
       await enqueueSync({ method, url: apiUrl(path), body });
     }
-    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`);
+    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`, parseErrorBody(text));
   }
 
   // A captive portal / ISP login page can answer 200 with an HTML body. res.ok

@@ -202,7 +202,7 @@ export default function MandiPrices() {
   }, [filtered]);
 
   return (
-    <PageShell title="Mandi Prices" back="/">
+    <PageShell title="Market Prices" back="/">
       <div className="p-4 space-y-4">
         {/* Hero */}
         <div className="bg-gradient-to-r from-purple-700 to-purple-500 rounded-2xl p-4 text-white">
