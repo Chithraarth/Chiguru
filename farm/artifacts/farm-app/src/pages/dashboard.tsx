@@ -192,13 +192,30 @@ export default function Dashboard() {
             )}
           </div>
         ) : (
-          <Link href="/onboarding" className="block">
-            <div className="bg-primary/5 border-2 border-dashed border-primary/20 rounded-2xl p-5 text-center">
+          <div className="bg-primary/5 border-2 border-dashed border-primary/20 rounded-2xl p-5 text-center space-y-3">
+            <div>
               <Plus className="h-8 w-8 text-primary mx-auto mb-2" />
               <p className="font-semibold text-primary">{t("home.setupFarm")}</p>
               <p className="text-sm text-primary/80 mt-0.5">{t("home.setupFarmSub")}</p>
             </div>
-          </Link>
+            <div className="flex flex-col gap-2 pt-1">
+              <Link href="/onboarding">
+                <div className="w-full bg-primary text-primary-foreground rounded-xl h-11 flex items-center justify-center gap-2 font-semibold text-sm">
+                  <Plus className="h-4 w-4" /> Create New Estate
+                </div>
+              </Link>
+              <Link href="/subscription">
+                <div className="w-full bg-white border border-primary/20 text-primary rounded-xl h-11 flex items-center justify-center font-semibold text-sm">
+                  View Subscription Plans
+                </div>
+              </Link>
+              <Link href="/help">
+                <div className="w-full text-primary/70 rounded-xl h-9 flex items-center justify-center font-medium text-sm">
+                  Learn More
+                </div>
+              </Link>
+            </div>
+          </div>
         )}
 
         {/* Primary actions — 2x2 grid of white tiles with soft colored icon chips */}

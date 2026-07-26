@@ -203,7 +203,7 @@ function AddUpdateForm({ folder, onClose, onSaved }: { folder: UpdateFolder; onC
     try {
       const res = await fetch(apiUrl("/estate-updates/count-workers"), {
         method: "POST",
-        headers: estateHeaders(),
+        headers: await estateHeaders(),
         body: JSON.stringify({ imageDataUrl: dataUrl }),
       });
       if (res.ok) {
@@ -292,7 +292,7 @@ function AddUpdateForm({ folder, onClose, onSaved }: { folder: UpdateFolder; onC
         apiUrl("/estate-updates"),
         {
           method: "POST",
-          headers: estateHeaders(),
+          headers: await estateHeaders(),
           body: JSON.stringify({
             clientId,
             date: payload.date,
@@ -519,8 +519,8 @@ export default function DailyUpdate() {
   const groupNameById = new Map(workGroups.map((g) => [g.id, g.name]));
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) =>
-      fetch(apiUrl(`/estate-updates/${id}`), { method: "DELETE", headers: estateHeaders() }),
+    mutationFn: async (id: number) =>
+      fetch(apiUrl(`/estate-updates/${id}`), { method: "DELETE", headers: await estateHeaders() }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["estate-updates"] }),
   });
 

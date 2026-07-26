@@ -15,8 +15,10 @@ RUN pnpm install --frozen-lockfile
 # by `vite build` itself — only BASE_PATH actually affects the build output.
 ENV PORT=5173
 ENV BASE_PATH=/
-ARG VITE_CLERK_PUBLISHABLE_KEY
-ARG VITE_CLERK_PROXY_URL
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_APP_ID
 RUN pnpm --filter @workspace/farm-app run build
 
 FROM node:22-slim AS manager-build

@@ -1,4 +1,5 @@
 import { enqueueSync, fetchWithTimeout, looksLikeOurApi } from "./offline-db";
+import { getIdToken } from "./firebase";
 
 // A stalled request on a flaky network should fall back to the offline queue, not
 // hang the UI. Abort the immediate submit after this long and queue it for retry.
@@ -23,21 +24,27 @@ export function getActiveEstateId(): string | null {
 }
 
 /**
- * Every request must carry the active estate so the API scopes data to it. We add
- * X-Estate-Id here (not per call site) so it can never be forgotten.
+ * Every request must carry the active estate (so the API scopes data to it)
+ * and, once signed in, the Firebase ID token (so the API knows which Owner is
+ * asking) — added here, not per call site, so neither can be forgotten.
  */
-function withEstateHeader(headers: HeadersInit): HeadersInit {
+async function withAuthHeaders(headers: HeadersInit): Promise<HeadersInit> {
   const eid = getActiveEstateId();
-  if (!eid) return headers;
-  return { ...headers, "X-Estate-Id": eid };
+  const token = await getIdToken();
+  return {
+    ...headers,
+    ...(eid ? { "X-Estate-Id": eid } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 }
 
 /**
- * Headers with the active estate id, for the few call sites that must use raw
- * fetch (e.g. media uploads in daily-update) instead of apiFetch/apiMutate.
+ * Headers with the active estate id + auth token, for the few call sites that
+ * must use raw fetch (e.g. media uploads in daily-update) instead of
+ * apiFetch/apiMutate.
  */
-export function estateHeaders(extra?: HeadersInit): HeadersInit {
-  return withEstateHeader({ "Content-Type": "application/json", ...(extra ?? {}) });
+export async function estateHeaders(extra?: HeadersInit): Promise<HeadersInit> {
+  return withAuthHeaders({ "Content-Type": "application/json", ...(extra ?? {}) });
 }
 
 /** Error thrown by apiFetch on a non-2xx response, carrying the HTTP status. */
@@ -66,7 +73,7 @@ function parseErrorBody(text: string): { message?: string; code?: string } | nul
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(apiUrl(path), {
     ...options,
-    headers: withEstateHeader({
+    headers: await withAuthHeaders({
       "Content-Type": "application/json",
       ...(options?.headers ?? {}),
     }),
@@ -97,7 +104,7 @@ export async function apiMutate<T>(
       apiUrl(path),
       {
         method,
-        headers: withEstateHeader({ "Content-Type": "application/json" }),
+        headers: await withAuthHeaders({ "Content-Type": "application/json" }),
         body: body ? JSON.stringify(body) : undefined,
       },
       SUBMIT_TIMEOUT_MS,

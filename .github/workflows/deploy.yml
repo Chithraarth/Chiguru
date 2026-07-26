@@ -36,8 +36,10 @@ jobs:
           file: ./nginx/Dockerfile
           push: true
           build-args: |
-            VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
-            VITE_CLERK_PROXY_URL=${{ secrets.VITE_CLERK_PROXY_URL }}
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+            VITE_FIREBASE_PROJECT_ID=${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+            VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/chiguru-nginx:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/chiguru-nginx:${{ github.sha }}

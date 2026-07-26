@@ -3,10 +3,11 @@ import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import {
   Menu, X, UserCircle2, Crown, Smartphone, LifeBuoy, Settings, Star,
-  LogIn, LogOut, Globe, ChevronRight, ChevronDown, CloudUpload, Trash2,
+  LogOut, Globe, ChevronRight, ChevronDown, CloudUpload, Trash2,
   Megaphone,
 } from "lucide-react";
-import { useUser, useClerk } from "@clerk/react";
+import { useAuth } from "@/lib/auth-context";
+import { signOutUser } from "@/lib/firebase";
 import {
   COUNTRIES, LANGUAGES, languagesForCountry, readStoredCountry, storeCountry,
 } from "@/lib/i18n-data";
@@ -14,8 +15,6 @@ import { useT } from "@/lib/i18n";
 import { currencyForCountry, storeCurrency } from "@/lib/currency";
 import { apiMutate } from "@/lib/api";
 import { RateAppSheet } from "@/components/rate-app-sheet";
-
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // "menu.rate" has no href — it opens the in-app rating sheet instead of navigating.
 const MENU_ITEMS = [
@@ -38,8 +37,7 @@ export function AppMenu() {
   const [langOpen, setLangOpen] = useState(false);
   const [, navigate] = useLocation();
   const { t, lang, setLang } = useT();
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const { user } = useAuth();
   const selectedCountry = COUNTRIES.find((c) => c.code === country) ?? null;
   const selectedLang = LANGUAGES.find((l) => l.code === lang) ?? null;
 
@@ -74,9 +72,9 @@ export function AppMenu() {
                   onClick={() => go("/profile")}
                   className="flex items-center gap-3 text-left min-w-0"
                 >
-                  {user?.imageUrl ? (
+                  {user?.photoURL ? (
                     <img
-                      src={user.imageUrl}
+                      src={user.photoURL}
                       alt=""
                       className="h-12 w-12 rounded-full border-2 border-white/40 shrink-0"
                     />
@@ -86,19 +84,8 @@ export function AppMenu() {
                     </div>
                   )}
                   <div className="min-w-0">
-                    {user ? (
-                      <>
-                        <p className="font-bold truncate">{user.fullName ?? user.firstName ?? ""}</p>
-                        <p className="text-primary-foreground/80 text-xs truncate">
-                          {user.primaryEmailAddress?.emailAddress ?? ""}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="font-bold">{t("menu.notSignedIn")}</p>
-                        <p className="text-primary-foreground/80 text-xs">{t("menu.signInHint")}</p>
-                      </>
-                    )}
+                    <p className="font-bold truncate">{user?.displayName || user?.phoneNumber || ""}</p>
+                    <p className="text-primary-foreground/80 text-xs truncate">{user?.email ?? ""}</p>
                   </div>
                 </button>
                 <button
@@ -109,15 +96,6 @@ export function AppMenu() {
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              {!user && (
-                <button
-                  onClick={() => go("/sign-in")}
-                  className="mt-3 w-full bg-white text-primary font-semibold rounded-xl h-11 flex items-center justify-center gap-2"
-                >
-                  <LogIn className="h-4 w-4" />
-                  {t("menu.signIn")}
-                </button>
-              )}
             </div>
 
             {/* Items */}
@@ -227,20 +205,18 @@ export function AppMenu() {
             </nav>
 
             {/* Sign out */}
-            {user && (
-              <div className="border-t border-gray-100 p-3">
-                <button
-                  onClick={() => {
-                    setOpen(false);
-                    void signOut({ redirectUrl: basePath || "/" });
-                  }}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl h-11 text-red-600 font-medium hover:bg-red-50"
-                >
-                  <LogOut className="h-4 w-4" />
-                  {t("menu.signOut")}
-                </button>
-              </div>
-            )}
+            <div className="border-t border-gray-100 p-3">
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  void signOutUser();
+                }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl h-11 text-red-600 font-medium hover:bg-red-50"
+              >
+                <LogOut className="h-4 w-4" />
+                {t("menu.signOut")}
+              </button>
+            </div>
           </div>
         </div>,
         document.body
