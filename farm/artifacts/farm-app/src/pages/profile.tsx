@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  UserCircle2, ShieldCheck, Copy, Check, LogIn, LogOut, Loader2,
+  UserCircle2, ShieldCheck, Copy, Check, LogOut, Loader2,
   CloudUpload, CloudOff, Phone, RotateCcw,
 } from "lucide-react";
-import { useUser, useClerk } from "@clerk/react";
+import { useAuth } from "@/lib/auth-context";
+import { signOutUser } from "@/lib/firebase";
 import { PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,8 +15,6 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiMutate } from "@/lib/api";
 import { useEstate } from "@/lib/use-estate";
 import { useT } from "@/lib/i18n";
-
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface LinkedFarm {
   id: number;
@@ -29,8 +28,7 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [, navigate] = useLocation();
-  const { user, isLoaded } = useUser();
-  const { signOut } = useClerk();
+  const { user, loading } = useAuth();
   const { activeEstateId, setActiveEstate } = useEstate();
 
   // ── Contact phone (stored on the farm profile) ──
@@ -164,49 +162,34 @@ export default function ProfilePage() {
     <PageShell title={t("profile.title")} back="/">
       <div className="p-4 space-y-4 max-w-lg mx-auto w-full">
         {/* Account card */}
-        {!isLoaded ? (
+        {loading ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-6 flex justify-center">
             <Loader2 className="w-5 h-5 animate-spin text-primary" />
           </div>
-        ) : user ? (
+        ) : (
           <section className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
             <div className="flex items-center gap-3">
-              {user.imageUrl ? (
-                <img src={user.imageUrl} alt="" className="h-14 w-14 rounded-full border border-gray-200" />
+              {user?.photoURL ? (
+                <img src={user.photoURL} alt="" className="h-14 w-14 rounded-full border border-gray-200" />
               ) : (
                 <UserCircle2 className="h-14 w-14 text-gray-300" />
               )}
               <div className="min-w-0 flex-1">
-                <p className="font-bold text-gray-800 truncate">{user.fullName ?? user.firstName ?? "—"}</p>
-                <p className="text-sm text-gray-500 truncate">{user.primaryEmailAddress?.emailAddress ?? ""}</p>
+                <p className="font-bold text-gray-800 truncate">{user?.displayName || user?.phoneNumber || "—"}</p>
+                <p className="text-sm text-gray-500 truncate">{user?.email ?? ""}</p>
               </div>
             </div>
             <button
-              onClick={() => void signOut({ redirectUrl: basePath || "/" })}
+              onClick={() => void signOutUser()}
               className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl h-11 border border-red-200 text-red-600 font-medium hover:bg-red-50"
             >
               <LogOut className="w-4 h-4" />
               {t("profile.signOut")}
             </button>
           </section>
-        ) : (
-          <section className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm text-center">
-            <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-              <ShieldCheck className="w-7 h-7" />
-            </div>
-            <h2 className="mt-3 font-bold text-gray-800 text-lg">{t("profile.signInTitle")}</h2>
-            <p className="mt-1 text-sm text-gray-500 leading-relaxed">{t("profile.signInBody")}</p>
-            <Button
-              onClick={() => navigate("/sign-in")}
-              className="mt-4 w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl h-12"
-            >
-              <LogIn className="w-4 h-4 mr-2" />
-              {t("profile.signInCta")}
-            </Button>
-          </section>
         )}
 
-        {/* Farm backup status (signed-in only) */}
+        {/* Farm backup status */}
         {user && (
           <section className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
             <div className="flex items-start gap-3">
@@ -286,9 +269,11 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* Backup code — fallback only for farmers who don't sign in with Google.
-            Signed-in accounts restore by simply signing in, so hide the code. */}
-        {isLoaded && !user && (
+        {/* Backup code — this farm's own recovery code, plus restoring a
+            different farm by its code (e.g. claiming a farm created before
+            this account existed). Independent of sign-in, which is mandatory
+            now, so no longer conditional on being signed out. */}
+        {!loading && (
         <section className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="bg-primary/10 text-primary rounded-xl p-2.5 flex-shrink-0">

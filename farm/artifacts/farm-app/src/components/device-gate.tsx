@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useUser, useClerk } from "@clerk/react";
+import { useAuth } from "@/lib/auth-context";
+import { signOutUser, getIdToken } from "@/lib/firebase";
 import { Smartphone, LogOut, Loader2, ShieldAlert } from "lucide-react";
 import { apiUrl } from "@/lib/api";
 import { getDeviceId, describeDevice } from "@/lib/device";
@@ -29,8 +30,8 @@ const RECHECK_MS = 60_000;
  * the app. This keeps startup instant on slow rural networks.
  */
 export function DeviceGate({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, user } = useUser();
-  const { signOut } = useClerk();
+  const { user } = useAuth();
+  const isSignedIn = !!user;
   const [blocked, setBlocked] = useState(false);
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [removingId, setRemovingId] = useState<number | null>(null);
@@ -44,9 +45,13 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
     checkingRef.current = true;
     const epoch = epochRef.current;
     try {
+      const token = await getIdToken();
       const res = await fetch(apiUrl("/me/devices/register"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ deviceId: getDeviceId(), deviceName: describeDevice() }),
       });
       if (epoch !== epochRef.current) return; // stale response — auth changed mid-flight
@@ -80,12 +85,16 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
     runCheck();
     const t = setInterval(runCheck, RECHECK_MS);
     return () => clearInterval(t);
-  }, [isSignedIn, user?.id, runCheck]);
+  }, [isSignedIn, user?.uid, runCheck]);
 
   const removeDevice = async (id: number) => {
     setRemovingId(id);
     try {
-      const res = await fetch(apiUrl(`/me/devices/${id}`), { method: "DELETE" });
+      const token = await getIdToken();
+      const res = await fetch(apiUrl(`/me/devices/${id}`), {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       if (res.ok || res.status === 404) {
         // Slot freed — try to claim it for this device right away.
         await runCheck();
@@ -144,7 +153,7 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
         </div>
 
         <button
-          onClick={() => signOut()}
+          onClick={() => signOutUser()}
           className="w-full text-sm text-gray-500 font-medium py-2 active:opacity-80"
         >
           Sign out on this device instead

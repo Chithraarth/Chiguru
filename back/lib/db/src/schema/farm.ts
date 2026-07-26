@@ -13,6 +13,7 @@ import {
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { ownersTable } from "./owners";
 
 export const farmProfileTable = pgTable("farm_profile", {
   id: serial("id").primaryKey(),
@@ -21,10 +22,13 @@ export const farmProfileTable = pgTable("farm_profile", {
   // code IS the identity: whoever enters it on a new/lost phone reclaims all of
   // this farm's synced records. Generated once and shown in Backup & Restore.
   recoveryCode: text("recovery_code").unique(),
-  // Optional link to a signed-in account (Clerk user id). When a farmer signs
-  // in with Google, their farms are tied to this id so a new phone can restore
-  // everything just by signing in — no backup code needed.
+  // Legacy link from the pre-Firebase (Clerk) auth era. Superseded by ownerId
+  // below — kept only so old rows aren't silently orphaned; not written to anymore.
   clerkUserId: text("clerk_user_id"),
+  // Owner of this estate under the multi-tenant Firebase-auth model. Nullable
+  // during the migration window — existing farms are backfilled to their real
+  // owner once that owner first signs in.
+  ownerId: integer("owner_id").references(() => ownersTable.id),
   // Farmer's contact phone, shown/edited in My Profile (used for callbacks/support).
   contactPhone: text("contact_phone"),
   // Location/size are optional: a planter can add a secondary estate with just a
@@ -686,11 +690,13 @@ export const mandiFetchLogTable = pgTable("mandi_fetch_log", {
 ]);
 
 // ── Account device limit ─────────────────────────────────────────────────────
-// Each signed-in account (Google / Apple / email via Clerk) may be active on at
-// most 2 devices at a time. Every device registers itself here; a 3rd device is
-// blocked until one of the existing ones is logged out.
+// Each signed-in Owner account may be active on at most 2 devices at a time.
+// Every device registers itself here; a 3rd device is blocked until one of the
+// existing ones is logged out.
 export const userDevicesTable = pgTable("user_devices", {
   id: serial("id").primaryKey(),
+  // Holds the Owner's numeric id (as a string) — column kept as "clerk_user_id"
+  // to avoid an extra migration, but it's an Owner id now, not a Clerk one.
   clerkUserId: text("clerk_user_id").notNull(),
   deviceId: text("device_id").notNull(),
   deviceName: text("device_name"),

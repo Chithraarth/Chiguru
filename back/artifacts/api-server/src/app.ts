@@ -2,13 +2,8 @@ import express, { type Express } from "express";
 import cors from "cors";
 import compression from "compression";
 import pinoHttp from "pino-http";
-import { clerkMiddleware } from "@clerk/express";
-import { publishableKeyFromHost } from "@clerk/shared/keys";
-import {
-  CLERK_PROXY_PATH,
-  clerkProxyMiddleware,
-  getClerkProxyHost,
-} from "./middlewares/clerkProxyMiddleware";
+import { firebaseAuthMiddleware } from "./middlewares/firebaseAuth";
+import { stripeWebhookHandler } from "./routes/subscription";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -33,23 +28,23 @@ app.use(
     },
   }),
 );
-app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 app.use(cors({ credentials: true, origin: true }));
 // Gzip responses — big win for photo-heavy JSON (work sessions, reports)
 // going to farmers on slow rural connections.
 app.use(compression());
+
+// Stripe needs the exact raw request bytes to verify a webhook's signature, so
+// this must be mounted with express.raw() BEFORE the global express.json()
+// below (which would otherwise consume/parse the body first).
+app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), stripeWebhookHandler);
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
-app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
-  })),
-);
+// Verifies a Firebase ID token if present and attaches req.owner — never
+// blocks by itself (see requireOwner for routes that must be signed in).
+app.use(firebaseAuthMiddleware);
 
 app.use("/api", router);
 

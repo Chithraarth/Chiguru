@@ -43,9 +43,7 @@ export default defineConfig({
   base: basePath,
   plugins: [
     react(),
-    // optimize:false — nested @layer imports from @clerk/themes get reordered by
-    // lightningcss in prod builds, breaking the Clerk UI in prod only.
-    tailwindcss({ optimize: false }),
+    tailwindcss(),
     runtimeErrorOverlay(),
     VitePWA({
       registerType: "autoUpdate",

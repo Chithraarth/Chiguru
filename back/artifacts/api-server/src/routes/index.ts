@@ -9,6 +9,8 @@ import hireRouter from "./hire";
 import adsRouter from "./ads";
 import managerRouter from "./manager";
 import errorsRouter from "./errors";
+import ownersRouter from "./owners";
+import subscriptionRouter from "./subscription";
 
 const router: IRouter = Router();
 
@@ -22,5 +24,7 @@ router.use(hireRouter);
 router.use(adsRouter);
 router.use(managerRouter);
 router.use(errorsRouter);
+router.use(ownersRouter);
+router.use(subscriptionRouter);
 
 export default router;

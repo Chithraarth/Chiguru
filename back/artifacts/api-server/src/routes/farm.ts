@@ -26,13 +26,15 @@ import {
   mandiFetchLogTable,
   userDevicesTable,
 } from "@workspace/db/schema";
+import { subscriptionsTable } from "@workspace/db/schema";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { getAuth } from "@clerk/express";
 import { requestOwnerKey, bodyOwnerKey } from "../lib/owner-key";
 import { sendSuggestionEmail } from "../lib/gmail";
 import { eq, and, or, gte, lte, lt, sql, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
-import { canSell, getMaxEstates } from "../lib/subscription";
+import { canSell } from "../lib/subscription";
+import { requireOwner } from "../middlewares/firebaseAuth";
+import { PLANS } from "../lib/stripe";
 
 const router = Router();
 
@@ -43,9 +45,36 @@ const router = Router();
 
 // Resolve the active estate id for a request: the X-Estate-Id header if valid,
 // otherwise the oldest estate (first onboarded). Returns null when none exist yet.
-async function activeEstateId(req: { header(name: string): string | undefined }): Promise<number | null> {
+async function activeEstateId(
+  req: { header(name: string): string | undefined; owner?: { id: number } },
+): Promise<number | null> {
   const h = req.header("X-Estate-Id");
-  if (h && !isNaN(Number(h))) return Number(h);
+  const headerEid = h && !isNaN(Number(h)) ? Number(h) : null;
+
+  if (headerEid != null) {
+    if (!req.owner) return headerEid; // e.g. the paired Manager app — no Owner to check against.
+    // Never resolve to an estate the signed-in Owner doesn't actually own,
+    // even if the client sent a stale/forged header.
+    const [row] = await db
+      .select({ id: farmProfileTable.id })
+      .from(farmProfileTable)
+      .where(and(eq(farmProfileTable.id, headerEid), eq(farmProfileTable.ownerId, req.owner.id)))
+      .limit(1);
+    if (row) return row.id;
+  }
+
+  if (req.owner) {
+    const [row] = await db
+      .select({ id: farmProfileTable.id })
+      .from(farmProfileTable)
+      .where(eq(farmProfileTable.ownerId, req.owner.id))
+      .orderBy(farmProfileTable.id)
+      .limit(1);
+    return row?.id ?? null;
+  }
+
+  // No authenticated Owner on this request — preserve the original
+  // single-farm-deployment fallback (oldest estate overall).
   const rows = await db
     .select({ id: farmProfileTable.id })
     .from(farmProfileTable)
@@ -216,66 +245,63 @@ router.post("/backup/restore", async (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Account (optional Google sign-in via Clerk). Signing in links farms to the
-// user id so a new phone restores everything just by signing in again.
+// Account (Firebase-authenticated Owner). Every request that reaches these
+// routes has already been through firebaseAuthMiddleware; requireOwner just
+// 401s if that didn't produce a signed-in Owner.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Farms linked to the signed-in account (401 when not signed in).
-router.get("/me/farms", async (req, res) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) return res.status(401).json({ message: "Not signed in" });
+// Farms owned by the signed-in Owner.
+router.get("/me/farms", requireOwner, async (req, res) => {
   const rows = await db
     .select({ id: farmProfileTable.id, farmName: farmProfileTable.farmName, village: farmProfileTable.village, district: farmProfileTable.district })
     .from(farmProfileTable)
-    .where(eq(farmProfileTable.clerkUserId, auth.userId))
+    .where(eq(farmProfileTable.ownerId, req.owner!.id))
     .orderBy(farmProfileTable.id);
   return res.json(rows);
 });
 
-// Link the active farm to the signed-in account. Refuses to steal a farm that
-// is already linked to a different account.
-router.post("/me/link-farm", async (req, res) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) return res.status(401).json({ message: "Not signed in" });
+// Link the active farm to the signed-in Owner. Refuses to steal a farm that
+// is already linked to a different Owner.
+router.post("/me/link-farm", requireOwner, async (req, res) => {
   const eid = await activeEstateId(req);
   if (eid == null) return res.status(404).json({ message: "No farm found yet" });
   const [estate] = await db
-    .select({ id: farmProfileTable.id, farmName: farmProfileTable.farmName, clerkUserId: farmProfileTable.clerkUserId })
+    .select({ id: farmProfileTable.id, farmName: farmProfileTable.farmName, ownerId: farmProfileTable.ownerId })
     .from(farmProfileTable)
     .where(eq(farmProfileTable.id, eid))
     .limit(1);
   if (!estate) return res.status(404).json({ message: "No farm found" });
-  if (estate.clerkUserId && estate.clerkUserId !== auth.userId) {
+  if (estate.ownerId && estate.ownerId !== req.owner!.id) {
     return res.status(403).json({ message: "This farm is already linked to a different account." });
   }
-  if (!estate.clerkUserId) {
+  if (!estate.ownerId) {
     await db
       .update(farmProfileTable)
-      .set({ clerkUserId: auth.userId, updatedAt: new Date() })
+      .set({ ownerId: req.owner!.id, updatedAt: new Date() })
       .where(eq(farmProfileTable.id, eid));
   }
   return res.json({ estateId: estate.id, farmName: estate.farmName, linked: true });
 });
 
-// Unlink the active farm from the signed-in account (must be the owner).
-router.post("/me/unlink-farm", async (req, res) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) return res.status(401).json({ message: "Not signed in" });
+// Unlink the active farm from the signed-in Owner.
+router.post("/me/unlink-farm", requireOwner, async (req, res) => {
   const eid = await activeEstateId(req);
   if (eid == null) return res.status(404).json({ message: "No farm found yet" });
   const [row] = await db
     .update(farmProfileTable)
-    .set({ clerkUserId: null, updatedAt: new Date() })
-    .where(and(eq(farmProfileTable.id, eid), eq(farmProfileTable.clerkUserId, auth.userId)))
+    .set({ ownerId: null, updatedAt: new Date() })
+    .where(and(eq(farmProfileTable.id, eid), eq(farmProfileTable.ownerId, req.owner!.id)))
     .returning({ id: farmProfileTable.id });
   if (!row) return res.status(404).json({ message: "This farm is not linked to your account." });
   return res.json({ estateId: row.id, linked: false });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Device limit — one account (Google / Apple / email) may be active on at most
+// Device limit — one Owner account may be active on at most
 // MAX_DEVICES_PER_ACCOUNT devices at the same time. Each device registers a
 // stable random id; a 3rd device is refused until an old one is logged out.
+// (userDevicesTable's "clerkUserId" column now holds the Owner's numeric id as
+// a string — kept as-is rather than renamed, to avoid an extra migration.)
 // ──────────────────────────────────────────────────────────────────────────────
 
 const MAX_DEVICES_PER_ACCOUNT = 2;
@@ -294,11 +320,9 @@ async function listUserDevices(userId: string) {
     .orderBy(userDevicesTable.createdAt);
 }
 
-// Register (or refresh) this device for the signed-in account.
+// Register (or refresh) this device for the signed-in Owner.
 // 403 { error: "device_limit" } when the account already uses 2 other devices.
-router.post("/me/devices/register", async (req, res) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) return res.status(401).json({ message: "Not signed in" });
+router.post("/me/devices/register", requireOwner, async (req, res) => {
   const b = req.body as Record<string, unknown>;
   const deviceId = typeof b.deviceId === "string" ? b.deviceId.trim() : "";
   const deviceName = typeof b.deviceName === "string" ? b.deviceName.trim().slice(0, 120) : null;
@@ -306,7 +330,7 @@ router.post("/me/devices/register", async (req, res) => {
     return res.status(400).json({ message: "deviceId is required" });
   }
 
-  const userId = auth.userId;
+  const userId = String(req.owner!.id);
   // Transaction + per-user advisory lock so two devices registering at the same
   // moment can't both pass the count check and exceed the limit.
   const outcome = await db.transaction(async (tx) => {
@@ -350,50 +374,68 @@ router.post("/me/devices/register", async (req, res) => {
 });
 
 // Devices currently using this account.
-router.get("/me/devices", async (req, res) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) return res.status(401).json({ message: "Not signed in" });
-  return res.json(await listUserDevices(auth.userId));
+router.get("/me/devices", requireOwner, async (req, res) => {
+  return res.json(await listUserDevices(String(req.owner!.id)));
 });
 
 // Log a device out of this account (frees one of the 2 slots).
-router.delete("/me/devices/:id", async (req, res) => {
-  const auth = getAuth(req);
-  if (!auth?.userId) return res.status(401).json({ message: "Not signed in" });
+router.delete("/me/devices/:id", requireOwner, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ message: "Invalid device id" });
   const [row] = await db
     .delete(userDevicesTable)
-    .where(and(eq(userDevicesTable.id, id), eq(userDevicesTable.clerkUserId, auth.userId)))
+    .where(and(eq(userDevicesTable.id, id), eq(userDevicesTable.clerkUserId, String(req.owner!.id))))
     .returning({ id: userDevicesTable.id });
   if (!row) return res.status(404).json({ message: "Device not found" });
   return res.status(204).send();
 });
 
-// List all estates (newest first), so the switcher can show them.
-router.get("/estates", async (_req, res) => {
-  const rows = await db.select().from(farmProfileTable).orderBy(farmProfileTable.id);
+// List the signed-in Owner's estates (newest first), so the switcher can show them.
+router.get("/estates", requireOwner, async (req, res) => {
+  const rows = await db
+    .select()
+    .from(farmProfileTable)
+    .where(eq(farmProfileTable.ownerId, req.owner!.id))
+    .orderBy(farmProfileTable.id);
   return res.json(rows);
 });
 
-router.post("/estates", async (req, res) => {
-  // Estate allowance: one free estate, plus one per purchased "Zamindar" add-on.
-  // Block creating another estate once the allowance is used up.
+// One free estate with no subscription; a plan's own allowance (or unlimited)
+// once the Owner has an active subscription — scoped to THIS Owner, not a
+// global count shared by every farmer on the deployment.
+const FREE_ESTATE_ALLOWANCE = 1;
+
+async function maxEstatesForOwner(ownerId: number): Promise<number> {
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.ownerId, ownerId))
+    .orderBy(desc(subscriptionsTable.id))
+    .limit(1);
+  if (!sub || sub.status !== "active") return FREE_ESTATE_ALLOWANCE;
+  const plan = Object.values(PLANS).find((p) => p.name === sub.planName);
+  return plan?.maxEstates ?? Infinity;
+}
+
+router.post("/estates", requireOwner, async (req, res) => {
   const [countRow] = await db
     .select({ count: sql<number>`count(*)::int` })
-    .from(farmProfileTable);
+    .from(farmProfileTable)
+    .where(eq(farmProfileTable.ownerId, req.owner!.id));
   const estateCount = countRow?.count ?? 0;
-  const maxEstates = await getMaxEstates();
+  const maxEstates = await maxEstatesForOwner(req.owner!.id);
   if (estateCount >= maxEstates) {
     return res.status(403).json({
-      message:
-        "You've reached your estate limit. Add the Zamindar add-on (₹299/month) to unlock one more estate.",
+      message: "You've reached your estate limit for your current plan. Upgrade your subscription to add more estates.",
       code: "ESTATE_LIMIT_REACHED",
     });
   }
   // Every new farm gets a recovery code at creation so backup works from day one.
   const recoveryCode = await uniqueRecoveryCode();
-  const [row] = await db.insert(farmProfileTable).values({ ...req.body, recoveryCode }).returning();
+  const [row] = await db
+    .insert(farmProfileTable)
+    .values({ ...req.body, ownerId: req.owner!.id, recoveryCode })
+    .returning();
   return res.status(201).json(row);
 });
 

@@ -1,17 +1,17 @@
-import { Suspense, useEffect, useRef } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Suspense } from "react";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { ClerkProvider, SignIn, SignUp, useClerk } from "@clerk/react";
-import { publishableKeyFromHost } from "@clerk/react/internal";
-import { shadcn } from "@clerk/themes";
+import { useEffect, useRef } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SyncProvider } from "@/lib/sync-manager";
 import { LanguageProvider } from "@/lib/i18n";
 import { EstateProvider } from "@/lib/use-estate";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DeviceGate } from "@/components/device-gate";
 import { lazyWithReload } from "@/lib/lazy-with-reload";
+import SignInPage from "@/pages/sign-in";
 import NotFound from "@/pages/not-found";
 
 const Dashboard = lazyWithReload(() => import("@/pages/dashboard"));
@@ -35,6 +35,7 @@ const NurseryAdmin = lazyWithReload(() => import("@/pages/nursery-admin"));
 const NurseryShop = lazyWithReload(() => import("@/pages/nursery"));
 const AgriDoctor = lazyWithReload(() => import("@/pages/agri-doctor"));
 const Subscription = lazyWithReload(() => import("@/pages/subscription"));
+const SubscriptionSuccess = lazyWithReload(() => import("@/pages/subscription-success"));
 const Marketplace = lazyWithReload(() => import("@/pages/marketplace"));
 const MandiPrices = lazyWithReload(() => import("@/pages/mandi"));
 const Equipment = lazyWithReload(() => import("@/pages/equipment"));
@@ -59,110 +60,22 @@ const queryClient = new QueryClient({
   },
 });
 
-// REQUIRED — copy verbatim per Clerk proxy setup. Resolves the key from the
-// hostname so the same build serves multiple domains.
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
-
-// Empty in dev (Clerk hits dev FAPI directly), auto-set in prod. Never gate on env.
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
-
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// Clerk passes full paths to routerPush/routerReplace, but wouter's setLocation
-// prepends the base — strip it to avoid doubling.
-function stripBase(path: string): string {
-  return basePath && path.startsWith(basePath)
-    ? path.slice(basePath.length) || "/"
-    : path;
-}
-
-const clerkAppearance = {
-  theme: shadcn,
-  cssLayerName: "clerk",
-  options: {
-    logoPlacement: "inside" as const,
-    logoLinkUrl: basePath || "/",
-    logoImageUrl: `${window.location.origin}${basePath}/pwa-192.png`,
-    socialButtonsPlacement: "top" as const,
-    socialButtonsVariant: "blockButton" as const,
-  },
-  variables: {
-    colorPrimary: "hsl(240, 59%, 31%)",
-    colorForeground: "#1f2937",
-    colorMutedForeground: "#6b7280",
-    colorDanger: "#dc2626",
-    colorBackground: "#ffffff",
-    colorInput: "#f9fafb",
-    colorInputForeground: "#1f2937",
-    colorNeutral: "#374151",
-    fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-    borderRadius: "0.75rem",
-  },
-  elements: {
-    rootBox: "w-full flex justify-center",
-    cardBox: "bg-white rounded-2xl w-[420px] max-w-full overflow-hidden shadow-lg",
-    card: "!shadow-none !border-0 !bg-transparent !rounded-none",
-    footer: "!shadow-none !border-0 !bg-transparent !rounded-none",
-    headerTitle: "text-gray-800 font-bold",
-    headerSubtitle: "text-gray-500",
-    socialButtonsBlockButtonText: "text-gray-700 font-medium",
-    formFieldLabel: "text-gray-700",
-    footerActionLink: "text-primary font-semibold",
-    footerActionText: "text-gray-500",
-    dividerText: "text-gray-400",
-    identityPreviewEditButton: "text-primary",
-    formFieldSuccessText: "text-emerald-700",
-    alertText: "text-gray-700",
-    logoBox: "justify-center",
-    logoImage: "h-10 w-10",
-    socialButtonsBlockButton: "border border-gray-200 rounded-xl h-12",
-    formButtonPrimary: "bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl h-11",
-    formFieldInput: "rounded-xl h-11",
-    footerAction: "justify-center",
-    dividerLine: "bg-gray-200",
-    alert: "rounded-xl",
-    otpCodeFieldInput: "rounded-lg",
-    formFieldRow: "gap-2",
-    main: "gap-4",
-  },
-};
-
-function SignInPage() {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-gray-50 px-4">
-      {/* path must be the full browser path — Clerk reads window.location.pathname */}
-      <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
-    </div>
-  );
-}
-
-function SignUpPage() {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-gray-50 px-4">
-      <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} />
-    </div>
-  );
-}
-
-// Keeps the query cache from leaking data across account switches.
-function ClerkQueryClientCacheInvalidator() {
-  const { addListener } = useClerk();
+// Keeps the query cache from leaking data across account switches (e.g. signing
+// out and into a different Owner on the same device).
+function AuthQueryClientCacheInvalidator() {
+  const { user } = useAuth();
   const qc = useQueryClient();
-  const prevUserIdRef = useRef<string | null | undefined>(undefined);
+  const prevUidRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
-    const unsubscribe = addListener(({ user }) => {
-      const userId = user?.id ?? null;
-      if (prevUserIdRef.current !== undefined && prevUserIdRef.current !== userId) {
-        qc.clear();
-      }
-      prevUserIdRef.current = userId;
-    });
-    return unsubscribe;
-  }, [addListener, qc]);
+    const uid = user?.uid ?? null;
+    if (prevUidRef.current !== undefined && prevUidRef.current !== uid) {
+      qc.clear();
+    }
+    prevUidRef.current = uid;
+  }, [user?.uid, qc]);
 
   return null;
 }
@@ -201,6 +114,7 @@ function Router() {
         <Route path="/nursery" component={NurseryShop} />
         <Route path="/agri-doctor" component={AgriDoctor} />
         <Route path="/subscription" component={Subscription} />
+        <Route path="/subscription/success" component={SubscriptionSuccess} />
         <Route path="/marketplace" component={Marketplace} />
         <Route path="/mandi" component={MandiPrices} />
         <Route path="/equipment" component={Equipment} />
@@ -211,50 +125,28 @@ function Router() {
         <Route path="/settings" component={SettingsPage} />
         <Route path="/help" component={HelpPage} />
         <Route path="/profile" component={ProfilePage} />
-        {/* REQUIRED — "/sign-in/*?" and "/sign-up/*?" verbatim: the /*? optional
-            wildcard matches both the bare URL and Clerk's OAuth sub-paths. */}
-        <Route path="/sign-in/*?" component={SignInPage} />
-        <Route path="/sign-up/*?" component={SignUpPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
   );
 }
 
-function ClerkProviderWithRoutes() {
-  const [, setLocation] = useLocation();
+// Mandatory sign-in gate: every route above is unreachable until Firebase
+// reports a signed-in user. No onboarding/estate/subscription step is forced
+// here — a fresh Owner lands straight on the Dashboard, which shows its own
+// empty state until they create an estate.
+function Gated() {
+  const { user, loading } = useAuth();
+
+  if (loading) return <PageLoader />;
+  if (!user) return <SignInPage />;
 
   return (
-    <ClerkProvider
-      publishableKey={clerkPubKey}
-      proxyUrl={clerkProxyUrl}
-      appearance={clerkAppearance}
-      signInUrl={`${basePath}/sign-in`}
-      signUpUrl={`${basePath}/sign-up`}
-      localization={{
-        signIn: {
-          start: {
-            title: "Welcome back to Chiguru",
-            subtitle: "Sign in to keep your farm safe & backed up",
-          },
-        },
-        signUp: {
-          start: {
-            title: "Create your Chiguru account",
-            subtitle: "Your farm data stays safe even if you lose your phone",
-          },
-        },
-      }}
-      routerPush={(to) => setLocation(stripBase(to))}
-      routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
-    >
-      <ClerkQueryClientCacheInvalidator />
-      <ErrorBoundary>
-        <DeviceGate>
-          <Router />
-        </DeviceGate>
-      </ErrorBoundary>
-    </ClerkProvider>
+    <ErrorBoundary>
+      <DeviceGate>
+        <Router />
+      </DeviceGate>
+    </ErrorBoundary>
   );
 }
 
@@ -265,10 +157,13 @@ function App() {
         <LanguageProvider>
           <EstateProvider>
             <SyncProvider>
-              <WouterRouter base={basePath}>
-                <ClerkProviderWithRoutes />
-              </WouterRouter>
-              <Toaster />
+              <AuthProvider>
+                <AuthQueryClientCacheInvalidator />
+                <WouterRouter base={basePath}>
+                  <Gated />
+                </WouterRouter>
+                <Toaster />
+              </AuthProvider>
             </SyncProvider>
           </EstateProvider>
         </LanguageProvider>
