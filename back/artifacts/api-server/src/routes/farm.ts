@@ -32,8 +32,8 @@ import { requestOwnerKey, bodyOwnerKey } from "../lib/owner-key";
 import { sendSuggestionEmail } from "../lib/gmail";
 import { eq, and, or, gte, lte, lt, sql, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
-import { canSell } from "../lib/subscription";
 import { requireOwner, requireOwnerOrManager, effectiveOwnerId } from "../middlewares/firebaseAuth";
+import { requireActiveSubscription } from "../middlewares/subscriptionGate";
 import { PLANS } from "../lib/stripe";
 
 const router = Router();
@@ -403,11 +403,9 @@ router.get("/estates", requireOwnerOrManager, async (req, res) => {
   return res.json(rows);
 });
 
-// One free estate with no subscription; a plan's own allowance (or unlimited)
-// once the Owner has an active subscription — scoped to THIS Owner, not a
-// global count shared by every farmer on the deployment.
-const FREE_ESTATE_ALLOWANCE = 1;
-
+// No free estate — creating even the first one requires an active
+// subscription. Once active, the plan's own allowance (or unlimited) applies,
+// scoped to THIS Owner, not a global count shared by every farmer.
 async function maxEstatesForOwner(ownerId: number): Promise<number> {
   const [sub] = await db
     .select()
@@ -415,7 +413,7 @@ async function maxEstatesForOwner(ownerId: number): Promise<number> {
     .where(eq(subscriptionsTable.ownerId, ownerId))
     .orderBy(desc(subscriptionsTable.id))
     .limit(1);
-  if (!sub || sub.status !== "active") return FREE_ESTATE_ALLOWANCE;
+  if (!sub || sub.status !== "active") return 0;
   const plan = Object.values(PLANS).find((p) => p.name === sub.planName);
   return plan?.maxEstates ?? Infinity;
 }
@@ -429,8 +427,10 @@ router.post("/estates", requireOwner, async (req, res) => {
   const maxEstates = await maxEstatesForOwner(req.owner!.id);
   if (estateCount >= maxEstates) {
     return res.status(403).json({
-      message: "You've reached your estate limit for your current plan. Upgrade your subscription to add more estates.",
-      code: "ESTATE_LIMIT_REACHED",
+      message: maxEstates === 0
+        ? "An active subscription is required to create a farm."
+        : "You've reached your estate limit for your current plan. Upgrade your subscription to add more estates.",
+      code: maxEstates === 0 ? "SUBSCRIPTION_REQUIRED" : "ESTATE_LIMIT_REACHED",
     });
   }
   // Every new farm gets a recovery code at creation so backup works from day one.
@@ -1201,7 +1201,7 @@ router.delete("/work-groups/:id/advance-payments/:payId", async (req, res) => {
 // the owner's own payment app and the owner completes the payment there, then
 // records it here.
 
-router.get("/worker-payments", async (req, res) => {
+router.get("/worker-payments", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const conditions = [eid != null ? eq(workerPaymentsTable.estateId, eid) : undefined];
   const groupId = req.query.workGroupId != null ? Number(req.query.workGroupId) : null;
@@ -1215,7 +1215,7 @@ router.get("/worker-payments", async (req, res) => {
   return res.json(rows);
 });
 
-router.post("/worker-payments", async (req, res) => {
+router.post("/worker-payments", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { estateId: _ignore, workerId, workGroupId, payeeName, amount, method, methodLabel, payeeHandle, paymentDate, note, clientId } = req.body ?? {};
 
@@ -1294,7 +1294,7 @@ router.post("/worker-payments", async (req, res) => {
   return res.status(201).json(row);
 });
 
-router.delete("/worker-payments/:id", async (req, res) => {
+router.delete("/worker-payments/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   await db.delete(workerPaymentsTable)
     .where(estateScoped(workerPaymentsTable.id, workerPaymentsTable.estateId, Number(req.params.id), eid));
@@ -1462,7 +1462,7 @@ router.get("/work-groups/:id/loans", async (req, res) => {
 // Attendance
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/attendance", async (req, res) => {
+router.get("/attendance", requireActiveSubscription, async (req, res) => {
   const { workGroupId, date } = req.query as Record<string, string>;
   const eid = await activeEstateId(req);
   const conditions = [];
@@ -1492,7 +1492,7 @@ router.get("/attendance", async (req, res) => {
   return res.json(rows);
 });
 
-router.post("/attendance", async (req, res) => {
+router.post("/attendance", requireActiveSubscription, async (req, res) => {
   const b = req.body as Record<string, unknown>;
   const workGroupId = Number(b.workGroupId);
   const workerId = Number(b.workerId);
@@ -1742,7 +1742,7 @@ router.post("/help-messages", async (req, res) => {
   return res.status(201).json(row);
 });
 
-router.patch("/attendance/:id", async (req, res) => {
+router.patch("/attendance/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const id = Number(req.params.id);
   // Block re-parenting the row to a work group outside the active estate.
@@ -1761,7 +1761,7 @@ router.patch("/attendance/:id", async (req, res) => {
   return res.json(row);
 });
 
-router.delete("/attendance/:id", async (req, res) => {
+router.delete("/attendance/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const id = Number(req.params.id);
   const where =
@@ -1852,7 +1852,7 @@ router.delete("/daily-work/:id", async (req, res) => {
 // Expenses
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/expenses", async (req, res) => {
+router.get("/expenses", requireActiveSubscription, async (req, res) => {
   const { cropId, category, startDate, endDate } = req.query as Record<string, string>;
   const eid = await activeEstateId(req);
   const conditions = [];
@@ -1884,7 +1884,7 @@ router.get("/expenses", async (req, res) => {
   return res.json(rows.map(({ receiptUrl, ...r }) => ({ ...r, hasReceipt: receiptUrl != null })));
 });
 
-router.get("/expenses/:id/receipt", async (req, res) => {
+router.get("/expenses/:id/receipt", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const [row] = await db
     .select({ receiptUrl: expensesTable.receiptUrl })
@@ -1904,7 +1904,7 @@ function invalidReceipt(receiptUrl: unknown): string | null {
   return null;
 }
 
-router.post("/expenses", async (req, res) => {
+router.post("/expenses", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { estateId: _ignore, ...body } = req.body ?? {};
   const receiptErr = invalidReceipt(body.receiptUrl);
@@ -1923,7 +1923,7 @@ router.post("/expenses", async (req, res) => {
   return res.status(201).json(row);
 });
 
-router.patch("/expenses/:id", async (req, res) => {
+router.patch("/expenses/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { estateId: _ignore, ...body } = req.body ?? {};
   const receiptErr = invalidReceipt(body.receiptUrl);
@@ -1940,7 +1940,7 @@ router.patch("/expenses/:id", async (req, res) => {
   return res.json(row);
 });
 
-router.delete("/expenses/:id", async (req, res) => {
+router.delete("/expenses/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   await db
     .delete(expensesTable)
@@ -2025,7 +2025,7 @@ router.delete("/sprays/:id", async (req, res) => {
 // Harvests
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/harvests", async (req, res) => {
+router.get("/harvests", requireActiveSubscription, async (req, res) => {
   const { cropId } = req.query as Record<string, string>;
   const eid = await activeEstateId(req);
   const conditions = [];
@@ -2059,7 +2059,7 @@ router.get("/harvests", async (req, res) => {
   return res.json(rows);
 });
 
-router.post("/harvests", async (req, res) => {
+router.post("/harvests", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { estateId: _ignore, ...body } = req.body ?? {};
   if (!(await cropInEstate(body.cropId != null ? Number(body.cropId) : null, eid))) {
@@ -2080,7 +2080,7 @@ router.post("/harvests", async (req, res) => {
   return res.status(201).json(row);
 });
 
-router.patch("/harvests/:id", async (req, res) => {
+router.patch("/harvests/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { estateId: _ignore, ...body } = req.body ?? {};
   if (!(await cropInEstate(body.cropId != null ? Number(body.cropId) : null, eid))) {
@@ -2098,7 +2098,7 @@ router.patch("/harvests/:id", async (req, res) => {
   return res.json(row);
 });
 
-router.delete("/harvests/:id", async (req, res) => {
+router.delete("/harvests/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   await db
     .delete(harvestsTable)
@@ -2110,7 +2110,7 @@ router.delete("/harvests/:id", async (req, res) => {
 // Loans
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/loans", async (req, res) => {
+router.get("/loans", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { workerId } = req.query as Record<string, string>;
   const conditions = [];
@@ -2151,7 +2151,7 @@ router.get("/loans", async (req, res) => {
   return res.json(withRemaining);
 });
 
-router.post("/loans", async (req, res) => {
+router.post("/loans", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { estateId: _ignore, ...body } = req.body ?? {};
   // The worker this loan is for must belong to the active estate, or the loan row
@@ -2178,7 +2178,7 @@ router.post("/loans", async (req, res) => {
   return res.status(201).json(row);
 });
 
-router.get("/loans/:id", async (req, res) => {
+router.get("/loans/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const rows = await db
     .select()
@@ -2188,7 +2188,7 @@ router.get("/loans/:id", async (req, res) => {
   return res.json({ ...rows[0], remainingAmount: Number(rows[0].totalDue) - Number(rows[0].repaidAmount) });
 });
 
-router.patch("/loans/:id", async (req, res) => {
+router.patch("/loans/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { estateId: _ignore, ...body } = req.body ?? {};
   if (body.workerId != null && !(await workerInEstate(Number(body.workerId), eid))) {
@@ -2211,7 +2211,7 @@ router.patch("/loans/:id", async (req, res) => {
   return res.json(row);
 });
 
-router.delete("/loans/:id", async (req, res) => {
+router.delete("/loans/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const loanId = Number(req.params.id);
   // Confirm the loan belongs to the active estate before touching its payments.
@@ -2230,7 +2230,7 @@ router.delete("/loans/:id", async (req, res) => {
 // Loan Payments
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/loan-payments", async (req, res) => {
+router.get("/loan-payments", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { loanId } = req.query as Record<string, string>;
   const conditions = [];
@@ -2257,7 +2257,7 @@ router.get("/loan-payments", async (req, res) => {
   return res.json(rows);
 });
 
-router.post("/loan-payments", async (req, res) => {
+router.post("/loan-payments", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   const { loanId } = req.body ?? {};
   // The loan being paid must belong to the active estate, or one farm could pay
@@ -2282,7 +2282,7 @@ router.post("/loan-payments", async (req, res) => {
   return res.status(201).json(row);
 });
 
-router.delete("/loan-payments/:id", async (req, res) => {
+router.delete("/loan-payments/:id", requireActiveSubscription, async (req, res) => {
   const eid = await activeEstateId(req);
   // Load the payment only if its loan is in the active estate (join guard), so a
   // known payment id from another farm can't be used to alter loan state here.
@@ -2441,7 +2441,7 @@ router.get("/dashboard/summary", async (req, res) => {
 // Reports
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/reports/season", async (req, res) => {
+router.get("/reports/season", requireActiveSubscription, async (req, res) => {
   const now = new Date();
   const startDate = (req.query.startDate as string) ?? `${now.getFullYear()}-01-01`;
   const endDate = (req.query.endDate as string) ?? `${now.getFullYear()}-12-31`;
@@ -2595,7 +2595,7 @@ router.get("/reports/season", async (req, res) => {
   });
 });
 
-router.get("/reports/monthly", async (req, res) => {
+router.get("/reports/monthly", requireActiveSubscription, async (req, res) => {
   const now = new Date();
   const month = (req.query.month as string) ?? now.toISOString().slice(0, 7);
   const startDate = `${month}-01`;
@@ -2643,7 +2643,7 @@ router.get("/reports/monthly", async (req, res) => {
 // Reports — Weekly
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/reports/weekly", async (req, res) => {
+router.get("/reports/weekly", requireActiveSubscription, async (req, res) => {
   const weekStart = (req.query.weekStart as string) ?? new Date().toISOString().slice(0, 10);
   const start = new Date(weekStart);
   const end = new Date(start);
@@ -3024,10 +3024,7 @@ router.get("/nursery/vendors", async (req, res) => {
   return res.json(vendors.map(v => ({ ...v, avgRating: Number(v.avgRating) })));
 });
 
-router.post("/nursery/vendors", async (req, res) => {
-  if (!(await canSell())) {
-    return res.status(403).json({ message: "Start your free trial or subscribe to open your nursery shop" });
-  }
+router.post("/nursery/vendors", requireOwner, requireActiveSubscription, async (req, res) => {
   const { name, phone, location, photoUrl } = req.body ?? {};
   if (!name?.trim() || !phone?.trim() || !location?.trim() || !photoUrl?.trim()) {
     return res.status(400).json({ message: "Shop name, phone, location and photo are required" });
@@ -3149,10 +3146,7 @@ router.get("/nursery/listings", async (req, res) => {
   return res.json(rows);
 });
 
-router.post("/nursery/listings", async (req, res) => {
-  if (!(await canSell())) {
-    return res.status(403).json({ message: "Start your free trial or subscribe to list your plants" });
-  }
+router.post("/nursery/listings", requireOwner, requireActiveSubscription, async (req, res) => {
   const vendorId = Number(req.body?.vendorId);
   if (!vendorId) {
     return res.status(400).json({ message: "vendorId is required" });

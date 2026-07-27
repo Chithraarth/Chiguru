@@ -60,6 +60,27 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Any gated feature (attendance, Farm Accounts, AI tools, posting a listing,
+ * creating an estate...) answers 403 SUBSCRIPTION_REQUIRED without an active
+ * plan. Rather than have every page handle that error individually, we catch
+ * it once here and send the owner straight to the Subscription page — a
+ * wouter-compatible navigation (history + popstate) so it doesn't force a
+ * full reload.
+ */
+function redirectToSubscription() {
+  if (window.location.pathname.replace(BASE, "") === "/subscription") return;
+  const target = `${BASE}/subscription`;
+  window.history.pushState(null, "", target);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function handleErrorBody(status: number, body: { message?: string; code?: string } | null) {
+  if (status === 403 && body?.code === "SUBSCRIPTION_REQUIRED") {
+    redirectToSubscription();
+  }
+}
+
 /** Best-effort JSON parse of an error response body — never throws. */
 function parseErrorBody(text: string): { message?: string; code?: string } | null {
   try {
@@ -80,7 +101,9 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
-    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`, parseErrorBody(text));
+    const body = parseErrorBody(text);
+    handleErrorBody(res.status, body);
+    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`, body);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -124,7 +147,9 @@ export async function apiMutate<T>(
     if (res.status >= 500) {
       await enqueueSync({ method, url: apiUrl(path), body });
     }
-    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`, parseErrorBody(text));
+    const parsedBody = parseErrorBody(text);
+    handleErrorBody(res.status, parsedBody);
+    throw new ApiError(res.status, `API ${path} → ${res.status}: ${text}`, parsedBody);
   }
 
   // A captive portal / ISP login page can answer 200 with an HTML body. res.ok

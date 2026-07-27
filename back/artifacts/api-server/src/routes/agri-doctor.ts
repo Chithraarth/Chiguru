@@ -28,6 +28,8 @@ import {
   canUseAgriDoctor,
   canUseManagerDevices,
 } from "../lib/subscription";
+import { requireOwner } from "../middlewares/firebaseAuth";
+import { requireActiveSubscription } from "../middlewares/subscriptionGate";
 
 const router = Router();
 
@@ -237,10 +239,7 @@ router.get("/agronomists/:id", async (req, res) => {
   return res.json(publicDoctor(rows[0]));
 });
 
-router.post("/agronomists", async (req, res) => {
-  if (!(await canSell())) {
-    return res.status(403).json({ error: "An active Farmer plan is required to offer Agri Doctor services" });
-  }
+router.post("/agronomists", requireOwner, requireActiveSubscription, async (req, res) => {
   const b = req.body as Record<string, unknown>;
   const name = typeof b.name === "string" ? b.name.trim() : "";
   const speciality = typeof b.speciality === "string" ? b.speciality.trim() : "";
@@ -584,10 +583,7 @@ router.post("/subscription/estate-addon", async (req, res) => {
 // Consultations (chat / call) with per-15-min billing
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.post("/consultations", async (req, res) => {
-  if (!(await canUseAgriDoctor())) {
-    return res.status(403).json({ error: "Subscribe to a plan to consult Agri Doctor" });
-  }
+router.post("/consultations", requireOwner, requireActiveSubscription, async (req, res) => {
   const { agronomistId, mode, topic } = req.body as { agronomistId?: number; mode?: string; topic?: string };
   if (!agronomistId) return res.status(400).json({ error: "agronomistId is required" });
   const docRows = await db.select().from(agronomistsTable).where(eq(agronomistsTable.id, Number(agronomistId))).limit(1);

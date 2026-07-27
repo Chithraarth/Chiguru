@@ -2,8 +2,9 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { produceListingsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
-import { canSell } from "../lib/subscription";
 import { requestOwnerKey, publicRow, bodyOwnerKey } from "../lib/owner-key";
+import { requireOwner } from "../middlewares/firebaseAuth";
+import { requireActiveSubscription } from "../middlewares/subscriptionGate";
 
 const router = Router();
 
@@ -44,11 +45,7 @@ router.get("/produce-listings/:id", async (req, res) => {
 });
 
 // Create a listing. Whitelist + validate input; never insert raw body.
-router.post("/produce-listings", async (req, res) => {
-  if (!(await canSell())) {
-    return res.status(403).json({ error: "Start your free trial or subscribe to sell your produce" });
-  }
-
+router.post("/produce-listings", requireOwner, requireActiveSubscription, async (req, res) => {
   const b = req.body as Record<string, unknown>;
   const trim = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const optStr = (v: unknown) => (trim(v) ? trim(v) : null);

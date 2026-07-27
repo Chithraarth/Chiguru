@@ -4,6 +4,7 @@ import { conversations, messages, farmProfileTable, cropsTable, expensesTable, s
 import { eq, asc, gte } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { CROP_DISEASE_KNOWLEDGE } from "../lib/crop-diseases";
+import { requireActiveSubscription } from "../middlewares/subscriptionGate";
 
 const router = Router();
 
@@ -141,7 +142,7 @@ Guidelines:
 // ──────────────────────────────────────────────
 // Stateless AI Chat (single-shot, full farm context)
 // ──────────────────────────────────────────────
-router.post("/ai/chat", async (req, res) => {
+router.post("/ai/chat", requireActiveSubscription, async (req, res) => {
   const { message, cropType } = req.body as { message: string; cropType?: string };
 
   if (!message) { res.status(400).json({ error: "message is required" }); return; }
@@ -215,7 +216,7 @@ Guidelines:
 // ──────────────────────────────────────────────
 // Disease Detection (vision analysis)
 // ──────────────────────────────────────────────
-router.post("/ai/disease", async (req, res) => {
+router.post("/ai/disease", requireActiveSubscription, async (req, res) => {
   const { imageBase64, cropType } = req.body as { imageBase64: string; cropType?: string };
 
   if (!imageBase64) { res.status(400).json({ error: "imageBase64 is required" }); return; }
@@ -428,7 +429,7 @@ If the image is too blurry or unclear, return count: 0 and confidence: "low".`,
 // ──────────────────────────────────────────────
 // Old Account Book Scan (vision — reads handwritten/printed farm ledgers)
 // ──────────────────────────────────────────────
-router.post("/ai/accounts-scan", async (req, res) => {
+router.post("/ai/accounts-scan", requireActiveSubscription, async (req, res) => {
   const { imageBase64 } = req.body as { imageBase64: string };
   if (!imageBase64) { res.status(400).json({ error: "imageBase64 is required" }); return; }
 
