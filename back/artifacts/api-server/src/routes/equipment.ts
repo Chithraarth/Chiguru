@@ -3,6 +3,8 @@ import { db } from "@workspace/db";
 import { equipmentListingsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requestOwnerKey, publicRow, bodyOwnerKey } from "../lib/owner-key";
+import { requireOwner } from "../middlewares/firebaseAuth";
+import { requireActiveSubscription } from "../middlewares/subscriptionGate";
 
 const router = Router();
 
@@ -56,11 +58,9 @@ router.get("/equipment-listings/:id", async (req, res) => {
   return res.json(publicRow(rows[0], requestOwnerKey(req)));
 });
 
-// Post an equipment ad. Open to everyone (no plan gate) — but still whitelist +
-// validate every field; never insert raw body. No auth means mutating routes are
-// a griefing surface, so only GET + this validated POST are exposed (no
-// edit/delete of arbitrary rows).
-router.post("/equipment-listings", async (req, res) => {
+// Post an equipment ad — requires an active subscription. Still whitelist +
+// validate every field; never insert raw body.
+router.post("/equipment-listings", requireOwner, requireActiveSubscription, async (req, res) => {
   const b = req.body as Record<string, unknown>;
   const trim = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const optStr = (v: unknown) => (trim(v) ? trim(v) : null);

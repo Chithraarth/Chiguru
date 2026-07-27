@@ -82,19 +82,19 @@ export function PairScreen() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-primary/5 to-white flex flex-col">
-      <div className="flex flex-col items-center pt-12 pb-6 px-6 text-center">
-        <div className="h-16 w-16 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
-          <Sprout className="h-9 w-9 text-white" />
+    <div className="min-h-dvh flex items-center justify-center bg-linear-to-b from-primary/5 to-white px-4 py-8">
+      <div className="w-full max-w-md space-y-5">
+        <div className="flex flex-col items-center text-center">
+          <div className="h-16 w-16 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
+            <Sprout className="h-9 w-9 text-white" />
+          </div>
+          <h1 className="text-xl font-bold text-gray-900 mt-4">Manager sign-in</h1>
+          <p className="text-sm text-gray-500 mt-1 leading-relaxed max-w-xs">
+            Sign in with the phone number the farm owner added you with, to mark
+            attendance and post daily work updates.
+          </p>
         </div>
-        <h1 className="text-xl font-bold text-gray-900 mt-4">Manager sign-in</h1>
-        <p className="text-sm text-gray-500 mt-1 leading-relaxed max-w-xs">
-          Sign in with the phone number the farm owner added you with, to mark
-          attendance and post daily work updates.
-        </p>
-      </div>
 
-      <div className="flex-1 px-5 pb-8 space-y-4">
         {!confirmation ? (
           <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-3">
             <div>
@@ -115,12 +115,12 @@ export function PairScreen() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="98765 43210"
-                  className="rounded-xl flex-1"
+                  className="rounded-xl h-11 flex-1"
                 />
               </div>
             </div>
             <Button
-              className="w-full h-12 bg-primary hover:bg-primary/90 rounded-xl text-base"
+              className="w-full h-11 bg-primary hover:bg-primary/90 rounded-xl text-base"
               disabled={verifying || !phone.trim()}
               onClick={sendOtp}
             >
@@ -138,12 +138,12 @@ export function PairScreen() {
                 inputMode="numeric"
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
-                className="rounded-xl text-center text-lg font-bold tracking-[0.2em]"
+                className="rounded-xl h-11 text-center text-lg font-bold tracking-[0.2em]"
                 autoFocus
               />
             </div>
             <Button
-              className="w-full h-12 bg-primary hover:bg-primary/90 rounded-xl text-base"
+              className="w-full h-11 bg-primary hover:bg-primary/90 rounded-xl text-base"
               disabled={verifying || !otp.trim()}
               onClick={verifyOtp}
             >
@@ -164,9 +164,9 @@ export function PairScreen() {
             <p className="text-sm text-red-600">{error}</p>
           </div>
         )}
-      </div>
 
-      <div id="recaptcha-container" />
+        <div id="recaptcha-container" />
+      </div>
     </div>
   );
 }
