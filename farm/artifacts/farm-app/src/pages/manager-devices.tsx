@@ -18,12 +18,28 @@ interface ManagerRow {
   activatedAt: string | null;
 }
 
+// Same handful of dial codes as sign-in.tsx — kept local rather than shared
+// since it's a small, rarely-changed list and the two pages have no other
+// coupling.
+const DIAL_CODES = [
+  { code: "+91", label: "🇮🇳 +91" },
+  { code: "+880", label: "🇧🇩 +880" },
+  { code: "+977", label: "🇳🇵 +977" },
+  { code: "+94", label: "🇱🇰 +94" },
+  { code: "+92", label: "🇵🇰 +92" },
+  { code: "+971", label: "🇦🇪 +971" },
+  { code: "+65", label: "🇸🇬 +65" },
+  { code: "+44", label: "🇬🇧 +44" },
+  { code: "+1", label: "🇺🇸 +1" },
+];
+
 export default function ManagerDevices() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
+  const [dialCode, setDialCode] = useState("+91");
   const [phone, setPhone] = useState("");
 
   const { data: managers = [], isLoading } = useQuery<ManagerRow[]>({
@@ -32,7 +48,7 @@ export default function ManagerDevices() {
   });
 
   const addManager = useMutation({
-    mutationFn: () => apiMutate<ManagerRow>("POST", "/managers", { name: name.trim(), phone: phone.trim() }),
+    mutationFn: () => apiMutate<ManagerRow>("POST", "/managers", { name: name.trim(), phone: `${dialCode}${phone.trim()}` }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["managers"] });
       setAdding(false);
@@ -141,8 +157,26 @@ export default function ManagerDevices() {
                   <Input value={name} onChange={(e) => setName(e.target.value)} className="rounded-xl h-11 mt-1" placeholder="e.g. Ramesh" />
                 </div>
                 <div>
-                  <Label className="text-xs text-gray-500">Phone number (with country code)</Label>
-                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-xl h-11 mt-1" placeholder="+919876543210" />
+                  <Label className="text-xs text-gray-500">Phone number</Label>
+                  <div className="flex gap-2 mt-1">
+                    <select
+                      value={dialCode}
+                      onChange={(e) => setDialCode(e.target.value)}
+                      className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0"
+                      aria-label="Country code"
+                    >
+                      {DIAL_CODES.map((d) => (
+                        <option key={d.code} value={d.code}>{d.label}</option>
+                      ))}
+                    </select>
+                    <Input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="rounded-xl h-11 flex-1"
+                      placeholder="98765 43210"
+                    />
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1 h-11 rounded-xl" onClick={() => setAdding(false)}>

@@ -278,20 +278,27 @@ export default function SignInPage() {
           </div>
         )}
 
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-gray-200" />
-          <span className="text-xs text-gray-400">or</span>
-          <div className="h-px flex-1 bg-gray-200" />
-        </div>
+        {/* Once the OTP screen is showing, this is the only path to finish signing
+            in — social sign-in doesn't apply mid-verification, so hide it rather
+            than offer a confusing dead-end alternative. */}
+        {!(tab === "phone" && confirmation) && (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-gray-200" />
+              <span className="text-xs text-gray-400">or</span>
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
 
-        <div className="space-y-2.5">
-          <Button onClick={handleGoogle} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
-            Continue with Google
-          </Button>
-          <Button onClick={handleFacebook} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
-            Continue with Facebook
-          </Button>
-        </div>
+            <div className="space-y-2.5">
+              <Button onClick={handleGoogle} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
+                Continue with Google
+              </Button>
+              <Button onClick={handleFacebook} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
+                Continue with Facebook
+              </Button>
+            </div>
+          </>
+        )}
 
         {/* Invisible reCAPTCHA anchor required by Firebase's phone-auth flow. */}
         <div id="recaptcha-container" />
