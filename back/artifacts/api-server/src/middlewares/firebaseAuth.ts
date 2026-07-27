@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import { eq } from "drizzle-orm";
-import { db, ownersTable, type Owner } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import { db, ownersTable, managersTable, type Owner, type ManagerRow } from "@workspace/db";
 import { firebaseAuth } from "../lib/firebase-admin";
 import { logger } from "../lib/logger";
 
@@ -10,16 +10,28 @@ declare global {
     interface Request {
       /** The signed-in Owner, if the request carried a valid Firebase ID token. */
       owner?: Owner;
+      /** The signed-in Manager, if the token belongs to an invited manager phone. */
+      manager?: ManagerRow;
     }
   }
 }
 
 /**
- * Verifies a Firebase ID token (Authorization: Bearer <token>) if present and
- * upserts the corresponding Owner row (create on first sign-in, otherwise bump
- * lastLogin). Never blocks the request itself — an invalid/missing token just
- * leaves req.owner unset; routes that require a signed-in Owner use the
- * requireOwner guard below.
+ * Verifies a Firebase ID token (Authorization: Bearer <token>) if present.
+ *
+ * Managers are checked FIRST: if the token's UID is already linked to a
+ * managers row, or its phone number matches a still-"pending" invite from an
+ * Owner, this request is a Manager — req.manager is attached and we return
+ * without ever touching the owners table. This matters because a manager's
+ * very first phone-OTP sign-in would otherwise fall through to the Owner
+ * upsert below and silently create a bogus Owner account for them.
+ *
+ * Otherwise this is a normal Owner sign-in (email/Google/Facebook/phone) and
+ * the existing upsert-on-every-request behavior applies unchanged.
+ *
+ * Never blocks the request itself — an invalid/missing token, or one that
+ * matches neither, just leaves req.owner/req.manager unset; routes that
+ * require one use requireOwner/requireManager below.
  */
 export async function firebaseAuthMiddleware(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
@@ -28,6 +40,32 @@ export async function firebaseAuthMiddleware(req: Request, _res: Response, next:
 
   try {
     const decoded = await firebaseAuth.verifyIdToken(token);
+
+    const [linkedManager] = await db
+      .select()
+      .from(managersTable)
+      .where(and(eq(managersTable.firebaseUid, decoded.uid), eq(managersTable.status, "active")));
+    if (linkedManager) {
+      req.manager = linkedManager;
+      return next();
+    }
+
+    if (decoded.phone_number) {
+      const [pendingInvite] = await db
+        .select()
+        .from(managersTable)
+        .where(and(eq(managersTable.phone, decoded.phone_number), eq(managersTable.status, "pending")))
+        .orderBy(managersTable.createdAt);
+      if (pendingInvite) {
+        const [activated] = await db
+          .update(managersTable)
+          .set({ firebaseUid: decoded.uid, status: "active", activatedAt: new Date() })
+          .where(eq(managersTable.id, pendingInvite.id))
+          .returning();
+        req.manager = activated;
+        return next();
+      }
+    }
 
     const [existing] = await db
       .select()
@@ -67,7 +105,7 @@ export async function firebaseAuthMiddleware(req: Request, _res: Response, next:
     }
   } catch (err) {
     // Expired/invalid token — treat as signed-out rather than failing the request;
-    // requireOwner (below) is what actually enforces auth where it matters.
+    // requireOwner/requireManager (below) are what actually enforce auth where it matters.
     logger.warn({ err }, "Firebase ID token verification failed");
   }
 
@@ -81,4 +119,27 @@ export function requireOwner(req: Request, res: Response, next: NextFunction) {
     return;
   }
   next();
+}
+
+/** Route guard: 401s if firebaseAuthMiddleware didn't attach a signed-in Manager. */
+export function requireManager(req: Request, res: Response, next: NextFunction) {
+  if (!req.manager) {
+    res.status(401).json({ message: "Sign in required", code: "AUTH_REQUIRED" });
+    return;
+  }
+  next();
+}
+
+/** Route guard: allows either an Owner or a Manager acting on that Owner's behalf. */
+export function requireOwnerOrManager(req: Request, res: Response, next: NextFunction) {
+  if (!req.owner && !req.manager) {
+    res.status(401).json({ message: "Sign in required", code: "AUTH_REQUIRED" });
+    return;
+  }
+  next();
+}
+
+/** The effective Owner id this request is scoped to, whether Owner or Manager. */
+export function effectiveOwnerId(req: Request): number | null {
+  return req.owner?.id ?? req.manager?.ownerId ?? null;
 }

@@ -1,175 +1,171 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { QRCodeSVG } from "qrcode.react";
-import { Loader2, Copy, Check, RefreshCw, Smartphone, ScanLine, ClipboardCheck, Lock } from "lucide-react";
+import { Loader2, UserPlus, Trash2, Smartphone, Clock, CheckCircle2, Lock } from "lucide-react";
 import { PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { apiFetch, apiMutate, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
-interface PairCode {
-  code: string;
-  farmName: string;
-}
-
-function managerUrl(code: string) {
-  const origin = window.location.origin;
-  return `${origin}/manager/?code=${encodeURIComponent(code)}`;
+interface ManagerRow {
+  id: number;
+  name: string;
+  phone: string;
+  status: "pending" | "active" | "removed";
+  createdAt: string;
+  activatedAt: string | null;
 }
 
 export default function ManagerDevices() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
 
-  const { data, isLoading, error } = useQuery<PairCode>({
-    queryKey: ["manager-pair-code"],
-    queryFn: () => apiFetch("/manager/pair-code"),
-    retry: false,
+  const { data: managers = [], isLoading } = useQuery<ManagerRow[]>({
+    queryKey: ["managers"],
+    queryFn: () => apiFetch("/managers"),
   });
 
-  // The pair-code endpoint returns 403 when the farm's plan doesn't include
-  // manager devices (Silver / no active plan). Show an upgrade prompt instead
-  // of a generic error in that case.
-  const isGated = error instanceof ApiError && error.status === 403;
-
-  const regenerate = useMutation({
-    mutationFn: () => apiMutate<PairCode>("POST", "/manager/pair-code/regenerate"),
-    onSuccess: (res) => {
-      if (res) qc.setQueryData(["manager-pair-code"], res);
-      qc.invalidateQueries({ queryKey: ["manager-pair-code"] });
-      toast({ title: "New code generated", description: "Old devices will need to pair again." });
+  const addManager = useMutation({
+    mutationFn: () => apiMutate<ManagerRow>("POST", "/managers", { name: name.trim(), phone: phone.trim() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["managers"] });
+      setAdding(false);
+      setName("");
+      setPhone("");
+      toast({ title: "Manager added", description: "They can now sign in with this phone number.", variant: "success" });
     },
-    onError: () => toast({ title: "Could not regenerate code", variant: "destructive" }),
+    onError: (err) => {
+      const message = err instanceof ApiError ? err.body?.message ?? err.message : "Could not add manager";
+      toast({ title: message, variant: "destructive" });
+    },
   });
 
-  function copy(text: string, which: "code" | "link") {
-    navigator.clipboard?.writeText(text).then(() => {
-      setCopied(which);
-      setTimeout(() => setCopied(null), 1500);
-    });
-  }
+  const removeManager = useMutation({
+    mutationFn: (id: number) => apiMutate("DELETE", `/managers/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["managers"] });
+      toast({ title: "Manager removed", description: "Their seat is now free to reassign.", variant: "success" });
+    },
+    onError: () => toast({ title: "Could not remove manager", variant: "destructive" }),
+  });
 
-  const code = data?.code ?? "";
-  const link = code ? managerUrl(code) : "";
+  const visible = managers.filter((m) => m.status !== "removed");
+  const activeCount = managers.filter((m) => m.status === "active").length;
+  const isGated = addManager.isError && addManager.error instanceof ApiError && addManager.error.body?.code === "NO_SEATS_AVAILABLE";
 
   return (
-    <PageShell title="Manager device" back="/">
+    <PageShell title="Managers" back="/">
       <div className="p-4 space-y-4">
+        <div className="bg-gradient-to-br from-primary to-violet-500 rounded-2xl p-4 text-white">
+          <div className="flex items-center gap-2">
+            <Smartphone className="h-5 w-5" />
+            <h2 className="font-bold">Manage your managers</h2>
+          </div>
+          <p className="text-primary-foreground/80 text-sm mt-1 leading-relaxed">
+            Add a manager's name and phone number — they sign in with that number
+            from their own phone, no password needed. They can mark attendance
+            and post daily work; everything flows back to you.
+          </p>
+        </div>
+
         {isLoading ? (
           <div className="flex justify-center py-10">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
-        ) : isGated ? (
-          <div className="bg-white rounded-2xl p-5 border-2 border-amber-200 shadow-sm space-y-4">
-            <div className="flex items-center gap-2">
-              <Lock className="h-5 w-5 text-amber-600" />
-              <h2 className="font-bold text-gray-900">Manager device add-on needed</h2>
-            </div>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              The manager device is an optional add-on (₹199 per month) — it is not part
-              of any plan. Add it to let a manager mark attendance and upload daily work from
-              their own phone.
-            </p>
-            <Button
-              className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground"
-              onClick={() => setLocation("/subscription")}
-            >
-              <Smartphone className="h-4 w-4 mr-2" /> Add manager device
-            </Button>
-          </div>
         ) : (
           <>
-            <div className="bg-gradient-to-br from-primary to-violet-500 rounded-2xl p-4 text-white">
-              <div className="flex items-center gap-2">
-                <Smartphone className="h-5 w-5" />
-                <h2 className="font-bold">Set up a manager device</h2>
+            {visible.length > 0 && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-100">
+                {visible.map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 p-4">
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      {m.status === "active" ? (
+                        <CheckCircle2 className="h-5 w-5 text-primary" />
+                      ) : (
+                        <Clock className="h-5 w-5 text-amber-500" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 truncate">{m.name}</p>
+                      <p className="text-xs text-gray-500">{m.phone}</p>
+                      <p className="text-xs mt-0.5">
+                        {m.status === "active" ? (
+                          <span className="text-primary font-medium">Active — signed in</span>
+                        ) : (
+                          <span className="text-amber-600 font-medium">Waiting for first sign-in</span>
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      className="h-9 w-9 p-0 text-gray-400 hover:text-red-600"
+                      disabled={removeManager.isPending}
+                      onClick={() => removeManager.mutate(m.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
-              <p className="text-primary-foreground/80 text-sm mt-1 leading-relaxed">
-                Let a manager mark attendance and upload daily work from their own phone.
-                They will only see those two screens — everything flows back to you.
-              </p>
-            </div>
+            )}
 
-            {/* QR card */}
-            <div className="bg-white rounded-2xl p-5 border-2 border-primary/20 shadow-sm flex flex-col items-center">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Scan to pair
-              </p>
-              {link && (
-                <div className="bg-white p-3 rounded-xl border border-gray-100">
-                  <QRCodeSVG value={link} size={200} level="M" includeMargin={false} />
+            {isGated && (
+              <div className="bg-white rounded-2xl p-5 border-2 border-amber-200 shadow-sm space-y-3">
+                <div className="flex items-center gap-2">
+                  <Lock className="h-5 w-5 text-amber-600" />
+                  <h2 className="font-bold text-gray-900">No seats available</h2>
                 </div>
-              )}
-              <p className="text-xs text-gray-400 mt-3 text-center">
-                Open the Manager app on the other phone and scan this code
-              </p>
-            </div>
-
-            {/* Manual code */}
-            <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Or enter this code manually
-              </p>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 bg-gray-50 rounded-xl py-3 text-center">
-                  <span className="text-2xl font-bold tracking-[0.3em] text-gray-900">{code}</span>
-                </div>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  You have {activeCount} active manager{activeCount === 1 ? "" : "s"} using all your purchased seats.
+                  Buy more seats to add another manager.
+                </p>
                 <Button
-                  variant="outline"
-                  className="h-12 w-12 p-0 rounded-xl"
-                  onClick={() => copy(code, "code")}
+                  className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground"
+                  onClick={() => setLocation("/subscription")}
                 >
-                  {copied === "code" ? <Check className="h-5 w-5 text-primary" /> : <Copy className="h-5 w-5" />}
+                  Buy manager seats
                 </Button>
               </div>
-              <button
-                onClick={() => copy(link, "link")}
-                className="mt-2 text-xs text-primary font-semibold flex items-center gap-1"
-              >
-                {copied === "link" ? <Check className="h-3.5 w-3.5" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
-                {copied === "link" ? "Link copied" : "Copy pairing link"}
-              </button>
-            </div>
+            )}
 
-            {/* How it works */}
-            <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 space-y-2.5">
-              <p className="text-sm font-semibold text-primary">How it works</p>
-              <div className="flex gap-2.5 items-start">
-                <ScanLine className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-primary/90 leading-relaxed">
-                  The manager opens the Manager app and scans the QR (or types the code) to pair their phone with your farm.
-                </p>
+            {adding ? (
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-3">
+                <div>
+                  <Label className="text-xs text-gray-500">Manager's name</Label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} className="rounded-xl h-11 mt-1" placeholder="e.g. Ramesh" />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Phone number (with country code)</Label>
+                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-xl h-11 mt-1" placeholder="+919876543210" />
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1 h-11 rounded-xl" onClick={() => setAdding(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    className="flex-1 h-11 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground"
+                    disabled={addManager.isPending || !name.trim() || !phone.trim()}
+                    onClick={() => addManager.mutate()}
+                  >
+                    {addManager.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add manager"}
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2.5 items-start">
-                <Check className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-primary/90 leading-relaxed">
-                  They can mark daily attendance and post work updates. Everything appears in your farm records instantly.
-                </p>
-              </div>
-            </div>
-
-            {/* Regenerate */}
-            <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
-              <p className="text-sm font-semibold text-amber-800">Lost a phone or removing a manager?</p>
-              <p className="text-xs text-amber-700/80 mt-1 leading-relaxed">
-                Generate a new code. All current devices stop working and will need to pair again with the new code.
-              </p>
+            ) : (
               <Button
                 variant="outline"
-                className="w-full h-11 mt-3 border-amber-300 text-amber-800 hover:bg-amber-100"
-                disabled={regenerate.isPending}
-                onClick={() => regenerate.mutate()}
+                className="w-full h-12 rounded-xl border-primary/30 text-primary"
+                onClick={() => setAdding(true)}
               >
-                {regenerate.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <><RefreshCw className="h-4 w-4 mr-2" /> Generate new code</>
-                )}
+                <UserPlus className="h-4 w-4 mr-2" /> Add a manager
               </Button>
-            </div>
+            )}
           </>
         )}
       </div>

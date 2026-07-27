@@ -28,6 +28,10 @@ COPY mana/ .
 RUN pnpm install --frozen-lockfile
 ENV PORT=5174
 ENV BASE_PATH=/manager/
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_APP_ID
 RUN pnpm --filter @workspace/manager-app run build
 
 FROM nginx:1.27-alpine AS runtime

@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@vladmandic/face-api": "^1.7.15",
+    "firebase": "^11.2.0",
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3"
   }
