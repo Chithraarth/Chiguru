@@ -1,13 +1,14 @@
 import { type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  Home, ChevronLeft, UserCheck, Camera, BookOpen, RefreshCw
+  Home, ChevronLeft, UserCheck, Camera, BookOpen, RefreshCw, Menu,
 } from "lucide-react";
 import { OfflineBanner, SyncIndicator } from "./sync-indicator";
 import { AppMenu } from "./app-menu";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import { canGoBack } from "@/lib/nav-history";
+import { useSidebar } from "@/lib/sidebar-context";
 
 const NAV_ITEMS = [
   { href: "/", icon: Home, key: "nav.home" },
@@ -73,6 +74,7 @@ export function PageShell({ title, children, back, onBack, action, leftAction, r
   const [location, setLocation] = useLocation();
   const { t } = useT();
   const accent = accentForPath(location);
+  const { toggle: toggleSidebar } = useSidebar();
 
   // Step back through real history (4 → 3 → 2 → 1) when the user navigated
   // here inside the app; fall back to the page's fixed `back` target when the
@@ -109,8 +111,22 @@ export function PageShell({ title, children, back, onBack, action, leftAction, r
                 <ChevronLeft className="h-5 w-5" />
               </button>
             )}
-            {/* Top-left menu on root pages (no back button) */}
-            {!back && !onBack && <AppMenu />}
+            {/* Top-left menu on root pages (no back button): drawer on mobile,
+                persistent-sidebar toggle on wide/web screens. */}
+            {!back && !onBack && (
+              <>
+                <div className="lg:hidden">
+                  <AppMenu />
+                </div>
+                <button
+                  onClick={toggleSidebar}
+                  aria-label="Toggle sidebar"
+                  className={cn("hidden lg:inline-flex p-1.5 -ml-1.5 rounded-lg transition-colors", accent.hover)}
+                >
+                  <Menu className="h-6 w-6" />
+                </button>
+              </>
+            )}
             {leftAction}
             {!centerTitle && (
               <h1 className="text-lg font-bold tracking-tight truncate">{title}</h1>

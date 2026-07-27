@@ -110,6 +110,7 @@ const en: Dict = {
 
   // Menu (hamburger drawer)
   "menu.title": "Menu",
+  "menu.account": "Account",
   "menu.profile": "My profile",
   "menu.country": "Country",
   "menu.language": "Language",
@@ -171,6 +172,7 @@ const en: Dict = {
 
   // Nav
   "nav.home": "Home",
+  "nav.market": "Market",
   "nav.expenses": "Expenses",
   "nav.shop": "Shop",
   "nav.attendance": "Attendance",

@@ -11,6 +11,8 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DeviceGate } from "@/components/device-gate";
 import { lazyWithReload } from "@/lib/lazy-with-reload";
+import { SidebarProvider } from "@/lib/sidebar-context";
+import { Sidebar } from "@/components/sidebar";
 import SignInPage from "@/pages/sign-in";
 import NotFound from "@/pages/not-found";
 
@@ -144,7 +146,14 @@ function Gated() {
   return (
     <ErrorBoundary>
       <DeviceGate>
-        <Router />
+        <SidebarProvider>
+          <div className="flex min-h-dvh">
+            <Sidebar />
+            <div className="flex-1 min-w-0">
+              <Router />
+            </div>
+          </div>
+        </SidebarProvider>
       </DeviceGate>
     </ErrorBoundary>
   );
