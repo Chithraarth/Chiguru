@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,22 @@ import {
 type Mode = "signin" | "signup";
 type Tab = "email" | "phone";
 
+// A handful of common dial codes for this app's audience — not an exhaustive
+// world list, just enough that a farmer using a non-Indian number isn't stuck.
+const DIAL_CODES = [
+  { code: "+91", label: "🇮🇳 +91" },
+  { code: "+880", label: "🇧🇩 +880" },
+  { code: "+977", label: "🇳🇵 +977" },
+  { code: "+94", label: "🇱🇰 +94" },
+  { code: "+92", label: "🇵🇰 +92" },
+  { code: "+971", label: "🇦🇪 +971" },
+  { code: "+65", label: "🇸🇬 +65" },
+  { code: "+44", label: "🇬🇧 +44" },
+  { code: "+1", label: "🇺🇸 +1" },
+];
+
+const RESEND_SECONDS = 60;
+
 // The auth-state listener in App.tsx swaps this page out for the app itself
 // the moment any of these methods succeeds — no explicit redirect needed here.
 export default function SignInPage() {
@@ -25,10 +41,34 @@ export default function SignInPage() {
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [dialCode, setDialCode] = useState("+91");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+
+  function startResendCountdown() {
+    setResendIn(RESEND_SECONDS);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      setResendIn((s) => {
+        if (s <= 1) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+  }
 
   function handleError(err: unknown) {
     const message = err instanceof Error ? err.message.replace(/^Firebase:\s*/, "") : "Something went wrong";
@@ -70,15 +110,15 @@ export default function SignInPage() {
     }
   }
 
-  async function handleSendOtp() {
+  async function sendOtp(isResend: boolean) {
     const digits = phone.trim();
     if (!digits) return;
     setLoading(true);
     try {
-      const phoneNumber = digits.startsWith("+") ? digits : `+91${digits}`;
-      const result = await sendPhoneOtp(phoneNumber, "recaptcha-container");
+      const result = await sendPhoneOtp(`${dialCode}${digits}`, "recaptcha-container");
       setConfirmation(result);
-      toast({ title: "OTP sent" });
+      startResendCountdown();
+      toast({ title: isResend ? "OTP resent" : "OTP sent", variant: "success" });
     } catch (err) {
       handleError(err);
     } finally {
@@ -111,21 +151,6 @@ export default function SignInPage() {
           </p>
         </div>
 
-        <div className="space-y-2.5">
-          <Button onClick={handleGoogle} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
-            Continue with Google
-          </Button>
-          <Button onClick={handleFacebook} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
-            Continue with Facebook
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-gray-200" />
-          <span className="text-xs text-gray-400">or</span>
-          <div className="h-px flex-1 bg-gray-200" />
-        </div>
-
         <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
           <button
             onClick={() => setTab("email")}
@@ -155,13 +180,23 @@ export default function SignInPage() {
             </div>
             <div>
               <Label className="text-xs text-gray-500">Password</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="rounded-xl h-11 mt-1"
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-              />
+              <div className="relative mt-1">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="rounded-xl h-11 pr-11"
+                  autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-gray-400"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <Button
               onClick={handleEmailSubmit}
@@ -183,16 +218,28 @@ export default function SignInPage() {
               <>
                 <div>
                   <Label className="text-xs text-gray-500">Mobile number</Label>
-                  <Input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="98765 43210"
-                    className="rounded-xl h-11 mt-1"
-                  />
+                  <div className="flex gap-2 mt-1">
+                    <select
+                      value={dialCode}
+                      onChange={(e) => setDialCode(e.target.value)}
+                      className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0"
+                      aria-label="Country code"
+                    >
+                      {DIAL_CODES.map((d) => (
+                        <option key={d.code} value={d.code}>{d.label}</option>
+                      ))}
+                    </select>
+                    <Input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="98765 43210"
+                      className="rounded-xl h-11 flex-1"
+                    />
+                  </div>
                 </div>
                 <Button
-                  onClick={handleSendOtp}
+                  onClick={() => sendOtp(false)}
                   disabled={loading || !phone.trim()}
                   className="w-full h-11 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
@@ -202,13 +249,14 @@ export default function SignInPage() {
             ) : (
               <>
                 <div>
-                  <Label className="text-xs text-gray-500">Enter the OTP sent to {phone}</Label>
+                  <Label className="text-xs text-gray-500">Enter the OTP sent to {dialCode}{phone}</Label>
                   <Input
                     type="text"
                     inputMode="numeric"
                     value={otp}
                     onChange={(e) => setOtp(e.target.value)}
                     className="rounded-xl h-11 mt-1"
+                    autoFocus
                   />
                 </div>
                 <Button
@@ -218,10 +266,32 @@ export default function SignInPage() {
                 >
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify & continue"}
                 </Button>
+                <button
+                  onClick={() => sendOtp(true)}
+                  disabled={loading || resendIn > 0}
+                  className="w-full text-center text-sm font-medium text-primary disabled:text-gray-400"
+                >
+                  {resendIn > 0 ? `Resend OTP in ${resendIn}s` : "Resend OTP"}
+                </button>
               </>
             )}
           </div>
         )}
+
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-gray-200" />
+          <span className="text-xs text-gray-400">or</span>
+          <div className="h-px flex-1 bg-gray-200" />
+        </div>
+
+        <div className="space-y-2.5">
+          <Button onClick={handleGoogle} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
+            Continue with Google
+          </Button>
+          <Button onClick={handleFacebook} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
+            Continue with Facebook
+          </Button>
+        </div>
 
         {/* Invisible reCAPTCHA anchor required by Firebase's phone-auth flow. */}
         <div id="recaptcha-container" />
