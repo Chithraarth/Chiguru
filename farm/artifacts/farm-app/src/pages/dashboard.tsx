@@ -192,7 +192,7 @@ export default function Dashboard() {
             )}
           </div>
         ) : (
-          <div className="bg-primary/5 border-2 border-dashed border-primary/20 rounded-2xl p-5 text-center space-y-3">
+          <div className="bg-primary/5 border-2 border-dashed border-primary/20 rounded-2xl p-5 text-center space-y-3 max-w-sm mx-auto">
             <div>
               <Plus className="h-8 w-8 text-primary mx-auto mb-2" />
               <p className="font-semibold text-primary">{t("home.setupFarm")}</p>
