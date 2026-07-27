@@ -88,6 +88,12 @@ const MORE = [
   { href: "/sync-log", icon: RefreshCw, key: "more.syncLog", color: "bg-slate-100 text-slate-700" },
 ];
 
+const ADVISORY = [
+  { href: "/agri-doctor", icon: Stethoscope, label: "Agri Doctor" },
+  { href: "/disease", icon: ScanLine, label: "Disease Check" },
+  { href: "/agri-ai", icon: BotMessageSquare, label: "Agri Advisor" },
+];
+
 export default function Dashboard() {
   const { t } = useT();
   const { estates, activeEstateId, activeEstate, setActiveEstate } = useEstate();
@@ -417,15 +423,21 @@ export default function Dashboard() {
             </Link>
           </div>
 
-          {/* Advisory — points at the real Agri-AI advisor feature */}
+          {/* Advisory — compact shortcuts to the AI/consult tools */}
           <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Advisory</h3>
-            <p className="text-sm text-foreground leading-relaxed">
-              Ask Chiguru's Agri-AI advisor about pest pressure, irrigation timing, or fertilizer schedules — anytime.
-            </p>
-            <Link href="/agri-ai" className="text-sm font-semibold text-primary mt-2 inline-block">
-              Ask now →
-            </Link>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Advisory</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {ADVISORY.map(({ href, icon: Icon, label }) => (
+                <Link key={href} href={href}>
+                  <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col items-center gap-2 active:scale-95 transition-transform">
+                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+                      <Icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <span className="text-xs font-medium text-gray-700 text-center leading-tight">{label}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </div>
