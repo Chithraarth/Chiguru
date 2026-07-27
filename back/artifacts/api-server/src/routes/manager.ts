@@ -1,84 +1,31 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { appSettingsTable, farmProfileTable } from "@workspace/db/schema";
-import { canUseManagerDevices } from "../lib/subscription";
+import { farmProfileTable } from "@workspace/db/schema";
+import { requireManager } from "../middlewares/firebaseAuth";
 
 const router = Router();
 
-const UPGRADE_MSG =
-  "The manager device is a paid add-on (₹199/month). Ask the farm owner to add it from Subscription.";
+// Called by the manager app right after Firebase phone-OTP sign-in. All the
+// actual linking (matching the phone to an Owner's pending invite, flipping
+// it to "active") already happened in firebaseAuthMiddleware — this just
+// hands back what the manager app needs to show the manager who they are and
+// which farm they're now working with.
+router.get("/manager/me", requireManager, async (req, res) => {
+  const [farm] = await db
+    .select({ farmName: farmProfileTable.farmName })
+    .from(farmProfileTable)
+    .where(eq(farmProfileTable.ownerId, req.manager!.ownerId))
+    .orderBy(farmProfileTable.id)
+    .limit(1);
 
-async function getSettings() {
-  const rows = await db.select().from(appSettingsTable).limit(1);
-  if (rows.length > 0) return rows[0];
-  const [row] = await db.insert(appSettingsTable).values({}).returning();
-  return row;
-}
-
-async function getFarmName(): Promise<string> {
-  const rows = await db.select().from(farmProfileTable).limit(1);
-  return rows.length > 0 ? rows[0].farmName : "My Farm";
-}
-
-function generateCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-async function ensurePairCode(): Promise<string> {
-  const settings = await getSettings();
-  if (settings.managerPairCode) return settings.managerPairCode;
-  const code = generateCode();
-  await db
-    .update(appSettingsTable)
-    .set({ managerPairCode: code })
-    .where(eq(appSettingsTable.id, settings.id));
-  return code;
-}
-
-router.get("/manager/pair-code", async (_req, res) => {
-  if (!(await canUseManagerDevices())) {
-    return res.status(403).json({ error: UPGRADE_MSG });
-  }
-  const code = await ensurePairCode();
-  const farmName = await getFarmName();
-  return res.json({ code, farmName });
-});
-
-router.post("/manager/pair-code/regenerate", async (_req, res) => {
-  if (!(await canUseManagerDevices())) {
-    return res.status(403).json({ error: UPGRADE_MSG });
-  }
-  const settings = await getSettings();
-  const code = generateCode();
-  await db
-    .update(appSettingsTable)
-    .set({ managerPairCode: code })
-    .where(eq(appSettingsTable.id, settings.id));
-  const farmName = await getFarmName();
-  return res.json({ code, farmName });
-});
-
-router.post("/manager/verify", async (req, res) => {
-  const b = req.body as Record<string, unknown>;
-  const code = typeof b.code === "string" ? b.code.trim().toUpperCase() : "";
-  if (!code) return res.status(400).json({ error: "code is required" });
-  // Plan gate: even a correct code stops working if the farm is not on a plan
-  // that includes manager devices (e.g. they downgraded to Silver or lapsed).
-  if (!(await canUseManagerDevices())) {
-    return res.status(403).json({ ok: false, reason: "plan", error: UPGRADE_MSG });
-  }
-  const settings = await getSettings();
-  if (!settings.managerPairCode || settings.managerPairCode !== code) {
-    return res.status(404).json({ ok: false, error: "Invalid code" });
-  }
-  const farmName = await getFarmName();
-  return res.json({ ok: true, farmName });
+  return res.json({
+    managerId: req.manager!.id,
+    name: req.manager!.name,
+    phone: req.manager!.phone,
+    ownerId: req.manager!.ownerId,
+    farmName: farm?.farmName ?? "My Farm",
+  });
 });
 
 export default router;

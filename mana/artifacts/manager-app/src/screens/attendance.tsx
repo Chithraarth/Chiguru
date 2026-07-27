@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { apiFetch, apiPost, apiUrl, getActiveEstateId, verifyCode } from "@/lib/api";
+import { apiFetch, apiPost, apiUrl, getActiveEstateId, checkManagerSession } from "@/lib/api";
 import { enqueueSync } from "@/lib/offline-db";
 import { useToast } from "@/hooks/use-toast";
 import type { Pairing } from "@/lib/pairing";
@@ -341,19 +341,12 @@ export function AttendanceScreen({
       await enqueueSync("/attendance", record, getActiveEstateId());
       onRecorded();
     } else {
-      // Same pairing re-check as the bulk save path: if the owner rotated the
-      // code or the plan dropped manager devices, stop before writing.
-      const verdict = await verifyCode(pairing.code);
-      if (verdict === "invalid" || verdict === "plan") {
-        if (verdict === "plan") {
-          toast({
-            title: "Manager devices are turned off",
-            description: "This farm's plan no longer includes manager devices. Ask the owner to upgrade.",
-            variant: "destructive",
-          });
-        }
+      // Same session re-check as the bulk save path: if the owner removed this
+      // manager, stop before writing.
+      const verdict = await checkManagerSession();
+      if (verdict === "invalid") {
         onRevoked();
-        throw new Error("pairing revoked");
+        throw new Error("manager session revoked");
       }
       await apiPost("/attendance", record);
       qc.invalidateQueries({ queryKey: ["attendance", activeEstateId, TODAY] });
@@ -400,17 +393,10 @@ export function AttendanceScreen({
       return;
     }
 
-    // Re-check the pair code first: if the owner rotated it, stop and force re-pair
-    // before writing anything to the shared farm records.
-    const verdict = await verifyCode(pairing.code);
-    if (verdict === "invalid" || verdict === "plan") {
-      if (verdict === "plan") {
-        toast({
-          title: "Manager devices are turned off",
-          description: "This farm's plan no longer includes manager devices. Ask the owner to upgrade.",
-          variant: "destructive",
-        });
-      }
+    // Re-check the manager session first: if the owner removed this manager,
+    // stop and force sign-in again before writing anything to the shared farm records.
+    const verdict = await checkManagerSession();
+    if (verdict === "invalid") {
       onRevoked();
       return;
     }

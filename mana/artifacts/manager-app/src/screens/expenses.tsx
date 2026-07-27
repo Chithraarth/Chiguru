@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { apiFetch, apiPost, verifyCode } from "@/lib/api";
+import { apiFetch, apiPost, checkManagerSession } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import type { Pairing } from "@/lib/pairing";
 import { fmtMoney, curSymbol } from "@/lib/currency";
@@ -203,17 +203,10 @@ export function ExpenseScreen({
 
     setSaving(true);
     try {
-      // Re-check the pair code before writing to the shared farm records, same as
-      // attendance/work-updates — a rotated code or downgraded plan locks out.
-      const verdict = await verifyCode(pairing.code);
-      if (verdict === "invalid" || verdict === "plan") {
-        if (verdict === "plan") {
-          toast({
-            title: "Manager devices are turned off",
-            description: "This farm's plan no longer includes manager devices. Ask the owner to upgrade.",
-            variant: "destructive",
-          });
-        }
+      // Re-check the manager session before writing to the shared farm records,
+      // same as attendance/work-updates — removal by the owner locks out.
+      const verdict = await checkManagerSession();
+      if (verdict === "invalid") {
         onRevoked();
         return;
       }

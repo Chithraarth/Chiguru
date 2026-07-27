@@ -1,7 +1,10 @@
-const KEY = "manager_pairing";
+const KEY = "manager_session";
 
+// Cached copy of the last-known /manager/me response, so the UI has a name
+// and farm to show instantly on load while Firebase restores the sign-in
+// session and we re-fetch the authoritative copy. The real identity always
+// comes from Firebase auth state + the server, never from this cache alone.
 export interface Pairing {
-  code: string;
   farmName: string;
   managerName: string;
 }
@@ -11,7 +14,7 @@ export function getPairing(): Pairing | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as Pairing;
-    if (!p.code || !p.managerName) return null;
+    if (!p.managerName) return null;
     return p;
   } catch {
     return null;

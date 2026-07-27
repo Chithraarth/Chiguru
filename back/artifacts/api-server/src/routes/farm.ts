@@ -33,7 +33,7 @@ import { sendSuggestionEmail } from "../lib/gmail";
 import { eq, and, or, gte, lte, lt, sql, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { canSell } from "../lib/subscription";
-import { requireOwner } from "../middlewares/firebaseAuth";
+import { requireOwner, requireOwnerOrManager, effectiveOwnerId } from "../middlewares/firebaseAuth";
 import { PLANS } from "../lib/stripe";
 
 const router = Router();
@@ -46,34 +46,36 @@ const router = Router();
 // Resolve the active estate id for a request: the X-Estate-Id header if valid,
 // otherwise the oldest estate (first onboarded). Returns null when none exist yet.
 async function activeEstateId(
-  req: { header(name: string): string | undefined; owner?: { id: number } },
+  req: { header(name: string): string | undefined; owner?: { id: number }; manager?: { ownerId: number } },
 ): Promise<number | null> {
+  const ownerId = req.owner?.id ?? req.manager?.ownerId;
   const h = req.header("X-Estate-Id");
   const headerEid = h && !isNaN(Number(h)) ? Number(h) : null;
 
   if (headerEid != null) {
-    if (!req.owner) return headerEid; // e.g. the paired Manager app — no Owner to check against.
-    // Never resolve to an estate the signed-in Owner doesn't actually own,
+    if (!ownerId) return headerEid; // No authenticated identity at all — preserve legacy fallback below.
+    // Never resolve to an estate that isn't actually owned by this request's
+    // Owner (whether signed in directly or via a Manager acting for them),
     // even if the client sent a stale/forged header.
     const [row] = await db
       .select({ id: farmProfileTable.id })
       .from(farmProfileTable)
-      .where(and(eq(farmProfileTable.id, headerEid), eq(farmProfileTable.ownerId, req.owner.id)))
+      .where(and(eq(farmProfileTable.id, headerEid), eq(farmProfileTable.ownerId, ownerId)))
       .limit(1);
     if (row) return row.id;
   }
 
-  if (req.owner) {
+  if (ownerId) {
     const [row] = await db
       .select({ id: farmProfileTable.id })
       .from(farmProfileTable)
-      .where(eq(farmProfileTable.ownerId, req.owner.id))
+      .where(eq(farmProfileTable.ownerId, ownerId))
       .orderBy(farmProfileTable.id)
       .limit(1);
     return row?.id ?? null;
   }
 
-  // No authenticated Owner on this request — preserve the original
+  // No authenticated Owner/Manager on this request — preserve the original
   // single-farm-deployment fallback (oldest estate overall).
   const rows = await db
     .select({ id: farmProfileTable.id })
@@ -390,12 +392,13 @@ router.delete("/me/devices/:id", requireOwner, async (req, res) => {
   return res.status(204).send();
 });
 
-// List the signed-in Owner's estates (newest first), so the switcher can show them.
-router.get("/estates", requireOwner, async (req, res) => {
+// List the Owner's estates (newest first), so the switcher can show them —
+// a signed-in Manager can list them too, scoped to the Owner they work for.
+router.get("/estates", requireOwnerOrManager, async (req, res) => {
   const rows = await db
     .select()
     .from(farmProfileTable)
-    .where(eq(farmProfileTable.ownerId, req.owner!.id))
+    .where(eq(farmProfileTable.ownerId, effectiveOwnerId(req)!))
     .orderBy(farmProfileTable.id);
   return res.json(rows);
 });

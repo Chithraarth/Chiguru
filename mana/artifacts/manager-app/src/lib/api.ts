@@ -1,3 +1,5 @@
+import { getIdToken } from "./firebase";
+
 export function apiUrl(path: string) {
   return `/api${path}`;
 }
@@ -40,14 +42,20 @@ export function setActiveEstateId(id: string | number) {
 
 /**
  * Every estate-scoped request must carry the active estate so the API filters and
- * stamps data to it. We add X-Estate-Id here (not per call site) so it can never be
- * forgotten — without it the server falls back to the owner's first estate and the
- * manager's writes land on (or 404 against) the wrong estate.
+ * stamps data to it, and (once signed in) the Firebase ID token so the API knows
+ * which Manager is asking. We add both here, not per call site, so neither can be
+ * forgotten — without the token the server falls back to trusting the estate
+ * header at face value, and without X-Estate-Id it defaults to the owner's first
+ * estate and the manager's writes land on (or 404 against) the wrong one.
  */
-function withEstateHeader(headers: HeadersInit): HeadersInit {
+async function withAuthHeaders(headers: HeadersInit): Promise<HeadersInit> {
   const eid = getActiveEstateId();
-  if (!eid) return headers;
-  return { ...headers, "X-Estate-Id": eid };
+  const token = await getIdToken();
+  return {
+    ...headers,
+    ...(eid ? { "X-Estate-Id": eid } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -58,7 +66,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     res = await fetch(apiUrl(path), {
       ...options,
       signal: options?.signal ?? controller.signal,
-      headers: withEstateHeader({
+      headers: await withAuthHeaders({
         "Content-Type": "application/json",
         ...(options?.headers ?? {}),
       }),
@@ -81,27 +89,29 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
-export type VerifyVerdict = "valid" | "invalid" | "plan" | "offline";
+export type SessionVerdict = "valid" | "invalid" | "offline";
+
+export interface ManagerMe {
+  managerId: number;
+  name: string;
+  phone: string;
+  ownerId: number;
+  farmName: string;
+}
 
 /**
- * Checks the stored pair code against the farm. Distinguishes:
- *  - a deliberately revoked/rotated code (server replies 404 → "invalid"),
- *  - the farm's plan no longer including manager devices (403 → "plan"),
+ * Re-checks this device's manager session against the farm. Distinguishes:
+ *  - the owner removed this manager, or Firebase disabled their account
+ *    (server replies 401 → "invalid"),
  *  - a connectivity problem (fetch rejects or 5xx → "offline"), so we never
  *    lock out a manager just because they briefly lost signal.
  */
-export async function verifyCode(code: string): Promise<VerifyVerdict> {
+export async function checkManagerSession(): Promise<SessionVerdict> {
   try {
-    const res = await fetch(apiUrl("/manager/verify"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
-    if (res.ok) return "valid";
-    if (res.status === 403) return "plan";
-    if (res.status >= 400 && res.status < 500) return "invalid";
-    return "offline";
-  } catch {
+    const data = await apiFetch<ManagerMe>("/manager/me");
+    return data ? "valid" : "offline";
+  } catch (err) {
+    if (err instanceof Error && /→ 401/.test(err.message)) return "invalid";
     return "offline";
   }
 }

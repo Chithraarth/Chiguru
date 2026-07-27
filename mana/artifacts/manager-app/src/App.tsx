@@ -8,8 +8,9 @@ import {
   apiFetch,
   getActiveEstateId,
   setActiveEstateId,
-  verifyCode,
+  checkManagerSession,
   type Estate,
+  type ManagerMe,
 } from "@/lib/api";
 import { flushAll, getPendingCount } from "@/lib/offline-db";
 import {
@@ -27,7 +28,8 @@ import { HomeScreen } from "@/screens/home";
 import { AttendanceScreen } from "@/screens/attendance";
 import { WorkUpdateScreen } from "@/screens/work-update";
 import { ExpenseScreen } from "@/screens/expenses";
-import { getPairing, clearPairing, type Pairing } from "@/lib/pairing";
+import { getPairing, savePairing, clearPairing, type Pairing } from "@/lib/pairing";
+import { auth, onAuthStateChanged, signOutUser } from "@/lib/firebase";
 import { refreshCurrency } from "@/lib/currency";
 
 const queryClient = new QueryClient({
@@ -41,10 +43,11 @@ type Screen = "home" | "attendance" | "work-update" | "expense";
 function AppInner() {
   const { toast } = useToast();
   const [pairing, setPairing] = useState<Pairing | null>(() => getPairing());
+  const [signedIn, setSignedIn] = useState(false);
   const [screen, setScreen] = useState<Screen>("home");
   const [activeEstateId, setActiveEstate] = useState<string | null>(() => getActiveEstateId());
   const [confirmExit, setConfirmExit] = useState(false);
-  const [checking, setChecking] = useState<boolean>(() => getPairing() != null);
+  const [checking, setChecking] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(() => navigator.onLine);
@@ -58,7 +61,7 @@ function AppInner() {
   const { data: estates = [] } = useQuery<Estate[]>({
     queryKey: ["estates"],
     queryFn: () => apiFetch("/estates"),
-    enabled: !!pairing,
+    enabled: signedIn,
   });
 
   // Pick a sane active estate once the list loads: keep the stored one if it's
@@ -123,8 +126,7 @@ function AppInner() {
   // on phone" into "the owner can see it".
   const runSync = useCallback(
     async ({ manual = false }: { manual?: boolean } = {}) => {
-      const current = getPairing();
-      if (!current) return;
+      if (!signedIn) return;
       // Automatic sync trusts navigator.onLine and skips when offline. The
       // manual emergency button tries anyway — navigator.onLine is unreliable
       // on rural/captive networks, so we let the actual fetch decide.
@@ -135,11 +137,11 @@ function AppInner() {
       }
       if (manual) setSyncing(true);
       try {
-        // Enforce the pairing lifecycle on replay too: queued records must NOT
-        // upload after the owner rotated the code or downgraded the plan. Only a
-        // definitive rejection unpairs — a connectivity hiccup just waits.
-        const verdict = await verifyCode(current.code);
-        if (verdict === "invalid" || verdict === "plan") {
+        // Enforce the manager lifecycle on replay too: queued records must NOT
+        // upload after the owner removed this manager. Only a definitive
+        // rejection signs the device out — a connectivity hiccup just waits.
+        const verdict = await checkManagerSession();
+        if (verdict === "invalid") {
           handleRevoked();
           return;
         }
@@ -195,7 +197,7 @@ function AppInner() {
         if (manual) setSyncing(false);
       }
     },
-    [toast, refreshPending],
+    [toast, refreshPending, signedIn],
   );
 
   // Keep the "saved offline" badge fresh and auto-sync when the network returns.
@@ -216,48 +218,76 @@ function AppInner() {
     };
   }, [runSync, refreshPending]);
 
-  // Re-verify the stored code on startup so a code the owner has rotated
-  // actually locks this device out (the owner is promised devices "stop working").
-  // A connectivity failure ("offline") must NOT unpair — only a real rejection.
+  // Firebase persists sign-in across reloads; on every auth-state change we
+  // confirm with the server that this phone is still an active manager (the
+  // owner may have removed them since the last session) and fetch their
+  // name/farm. A connectivity failure must NOT sign the device out — only a
+  // real 401 rejection does.
   useEffect(() => {
-    const stored = getPairing();
-    if (!stored) {
-      setChecking(false);
-      return;
-    }
     let active = true;
-    verifyCode(stored.code).then((verdict) => {
-      if (!active) return;
-      if (verdict === "invalid") {
-        clearPairing();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        if (!active) return;
+        setSignedIn(false);
         setPairing(null);
-        toast({
-          title: "This device was unpaired",
-          description: "The owner generated a new code. Pair again to continue.",
-          variant: "destructive",
-        });
+        clearPairing();
+        setChecking(false);
+        return;
       }
-      setChecking(false);
+      apiFetch<ManagerMe>("/manager/me")
+        .then((me) => {
+          if (!active) return;
+          const p: Pairing = { farmName: me.farmName, managerName: me.name };
+          savePairing(p);
+          setPairing(p);
+          setSignedIn(true);
+          setChecking(false);
+        })
+        .catch((err) => {
+          if (!active) return;
+          const invalid = err instanceof Error && /→ 401/.test(err.message);
+          if (invalid) {
+            void signOutUser();
+            clearPairing();
+            setPairing(null);
+            setSignedIn(false);
+            toast({
+              title: "This device was signed out",
+              description: "The owner removed this manager, or this number isn't invited yet.",
+              variant: "destructive",
+            });
+          } else {
+            // Offline — trust the cached pairing (if any) and let runSync's
+            // own retries reconcile once connectivity returns.
+            setSignedIn(getPairing() != null);
+          }
+          setChecking(false);
+        });
     });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [toast]);
 
   function handleExit() {
+    void signOutUser();
     clearPairing();
     setPairing(null);
+    setSignedIn(false);
     setScreen("home");
     setConfirmExit(false);
   }
 
   function handleRevoked() {
+    void signOutUser();
     clearPairing();
     setPairing(null);
+    setSignedIn(false);
     setScreen("home");
     toast({
-      title: "This device was unpaired",
-      description: "The owner generated a new code. Pair again to continue.",
+      title: "This device was signed out",
+      description: "The owner removed this manager. Sign in again if this was a mistake.",
       variant: "destructive",
     });
   }
@@ -275,13 +305,8 @@ function AppInner() {
 
   return (
     <>
-        {!pairing ? (
-          <PairScreen
-            onPaired={(p) => {
-              setPairing(p);
-              setScreen("home");
-            }}
-          />
+        {!signedIn || !pairing ? (
+          <PairScreen />
         ) : screen === "attendance" ? (
           <AttendanceScreen pairing={pairing} activeEstateId={activeEstateId} onBack={() => setScreen("home")} onRevoked={handleRevoked} onRecorded={() => void runSync()} />
         ) : screen === "work-update" ? (
