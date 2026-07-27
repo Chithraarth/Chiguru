@@ -3,16 +3,7 @@ import { Loader2, Sprout } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sendPhoneOtp, type ConfirmationResult } from "@/lib/firebase";
-
-const DIAL_CODES = [
-  { code: "+91", label: "🇮🇳 +91" },
-  { code: "+880", label: "🇧🇩 +880" },
-  { code: "+977", label: "🇳🇵 +977" },
-  { code: "+94", label: "🇱🇰 +94" },
-  { code: "+92", label: "🇵🇰 +92" },
-  { code: "+971", label: "🇦🇪 +971" },
-  { code: "+65", label: "🇸🇬 +65" },
-];
+import { DIAL_CODES, flagEmoji } from "@/lib/dial-codes";
 
 const RESEND_SECONDS = 60;
 
@@ -103,11 +94,13 @@ export function PairScreen() {
                 <select
                   value={dialCode}
                   onChange={(e) => setDialCode(e.target.value)}
-                  className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0"
+                  className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0 max-w-28 truncate"
                   aria-label="Country code"
                 >
                   {DIAL_CODES.map((d) => (
-                    <option key={d.code} value={d.code}>{d.label}</option>
+                    <option key={`${d.iso2}-${d.dial}`} value={d.dial}>
+                      {flagEmoji(d.iso2)} {d.name} ({d.dial})
+                    </option>
                   ))}
                 </select>
                 <Input

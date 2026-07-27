@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, apiMutate, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { DIAL_CODES, flagEmoji } from "@/lib/dial-codes";
 
 interface ManagerRow {
   id: number;
@@ -17,21 +18,6 @@ interface ManagerRow {
   createdAt: string;
   activatedAt: string | null;
 }
-
-// Same handful of dial codes as sign-in.tsx — kept local rather than shared
-// since it's a small, rarely-changed list and the two pages have no other
-// coupling.
-const DIAL_CODES = [
-  { code: "+91", label: "🇮🇳 +91" },
-  { code: "+880", label: "🇧🇩 +880" },
-  { code: "+977", label: "🇳🇵 +977" },
-  { code: "+94", label: "🇱🇰 +94" },
-  { code: "+92", label: "🇵🇰 +92" },
-  { code: "+971", label: "🇦🇪 +971" },
-  { code: "+65", label: "🇸🇬 +65" },
-  { code: "+44", label: "🇬🇧 +44" },
-  { code: "+1", label: "🇺🇸 +1" },
-];
 
 export default function ManagerDevices() {
   const qc = useQueryClient();
@@ -162,11 +148,13 @@ export default function ManagerDevices() {
                     <select
                       value={dialCode}
                       onChange={(e) => setDialCode(e.target.value)}
-                      className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0"
+                      className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0 max-w-28 truncate"
                       aria-label="Country code"
                     >
                       {DIAL_CODES.map((d) => (
-                        <option key={d.code} value={d.code}>{d.label}</option>
+                        <option key={`${d.iso2}-${d.dial}`} value={d.dial}>
+                          {flagEmoji(d.iso2)} {d.name} ({d.dial})
+                        </option>
                       ))}
                     </select>
                     <Input
