@@ -65,10 +65,11 @@ interface PageShellProps {
   onBack?: () => void;
   action?: ReactNode;
   leftAction?: ReactNode;
+  rightAction?: ReactNode;
   centerTitle?: boolean;
 }
 
-export function PageShell({ title, children, back, onBack, action, leftAction, centerTitle }: PageShellProps) {
+export function PageShell({ title, children, back, onBack, action, leftAction, rightAction, centerTitle }: PageShellProps) {
   const [location, setLocation] = useLocation();
   const { t } = useT();
   const accent = accentForPath(location);
@@ -108,6 +109,8 @@ export function PageShell({ title, children, back, onBack, action, leftAction, c
                 <ChevronLeft className="h-5 w-5" />
               </button>
             )}
+            {/* Top-left menu on root pages (no back button) */}
+            {!back && !onBack && <AppMenu />}
             {leftAction}
             {!centerTitle && (
               <h1 className="text-lg font-bold tracking-tight truncate">{title}</h1>
@@ -129,8 +132,7 @@ export function PageShell({ title, children, back, onBack, action, leftAction, c
           <div className="flex items-center gap-3">
             <SyncIndicator />
             {action}
-            {/* Top-right menu on root pages (no back button) */}
-            {!back && !onBack && <AppMenu />}
+            {rightAction}
           </div>
         </div>
       </header>
