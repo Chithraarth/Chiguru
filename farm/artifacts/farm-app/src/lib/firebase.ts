@@ -2,7 +2,6 @@ import { initializeApp, type FirebaseApp } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
-  FacebookAuthProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -41,10 +40,6 @@ export function signUpWithEmail(email: string, password: string) {
 
 export function signInWithGoogle() {
   return signInWithPopup(auth, new GoogleAuthProvider());
-}
-
-export function signInWithFacebook() {
-  return signInWithPopup(auth, new FacebookAuthProvider());
 }
 
 let recaptchaVerifier: RecaptchaVerifier | null = null;

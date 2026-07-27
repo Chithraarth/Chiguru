@@ -9,27 +9,13 @@ import {
   signInWithEmail,
   signUpWithEmail,
   signInWithGoogle,
-  signInWithFacebook,
   sendPhoneOtp,
   type ConfirmationResult,
 } from "@/lib/firebase";
+import { DIAL_CODES, flagEmoji } from "@/lib/dial-codes";
 
 type Mode = "signin" | "signup";
 type Tab = "email" | "phone";
-
-// A handful of common dial codes for this app's audience — not an exhaustive
-// world list, just enough that a farmer using a non-Indian number isn't stuck.
-const DIAL_CODES = [
-  { code: "+91", label: "🇮🇳 +91" },
-  { code: "+880", label: "🇧🇩 +880" },
-  { code: "+977", label: "🇳🇵 +977" },
-  { code: "+94", label: "🇱🇰 +94" },
-  { code: "+92", label: "🇵🇰 +92" },
-  { code: "+971", label: "🇦🇪 +971" },
-  { code: "+65", label: "🇸🇬 +65" },
-  { code: "+44", label: "🇬🇧 +44" },
-  { code: "+1", label: "🇺🇸 +1" },
-];
 
 const RESEND_SECONDS = 60;
 
@@ -92,17 +78,6 @@ export default function SignInPage() {
     setLoading(true);
     try {
       await signInWithGoogle();
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleFacebook() {
-    setLoading(true);
-    try {
-      await signInWithFacebook();
     } catch (err) {
       handleError(err);
     } finally {
@@ -222,11 +197,13 @@ export default function SignInPage() {
                     <select
                       value={dialCode}
                       onChange={(e) => setDialCode(e.target.value)}
-                      className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0"
+                      className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0 max-w-28 truncate"
                       aria-label="Country code"
                     >
                       {DIAL_CODES.map((d) => (
-                        <option key={d.code} value={d.code}>{d.label}</option>
+                        <option key={`${d.iso2}-${d.dial}`} value={d.dial}>
+                          {flagEmoji(d.iso2)} {d.name} ({d.dial})
+                        </option>
                       ))}
                     </select>
                     <Input
@@ -278,20 +255,24 @@ export default function SignInPage() {
           </div>
         )}
 
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-gray-200" />
-          <span className="text-xs text-gray-400">or</span>
-          <div className="h-px flex-1 bg-gray-200" />
-        </div>
+        {/* Once the OTP screen is showing, this is the only path to finish signing
+            in — social sign-in doesn't apply mid-verification, so hide it rather
+            than offer a confusing dead-end alternative. */}
+        {!(tab === "phone" && confirmation) && (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-gray-200" />
+              <span className="text-xs text-gray-400">or</span>
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
 
-        <div className="space-y-2.5">
-          <Button onClick={handleGoogle} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
-            Continue with Google
-          </Button>
-          <Button onClick={handleFacebook} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
-            Continue with Facebook
-          </Button>
-        </div>
+            <div className="space-y-2.5">
+              <Button onClick={handleGoogle} disabled={loading} variant="outline" className="w-full h-11 rounded-xl">
+                Continue with Google
+              </Button>
+            </div>
+          </>
+        )}
 
         {/* Invisible reCAPTCHA anchor required by Firebase's phone-auth flow. */}
         <div id="recaptcha-container" />

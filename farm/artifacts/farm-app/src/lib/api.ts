@@ -67,11 +67,18 @@ export class ApiError extends Error {
  * it once here and send the owner straight to the Subscription page — a
  * wouter-compatible navigation (history + popstate) so it doesn't force a
  * full reload.
+ *
+ * Uses replaceState, not pushState: the gated page never showed real content,
+ * so it shouldn't occupy its own spot in the back-stack. Pushing a new entry
+ * would mean "back" returns to the gated page, which immediately re-fetches,
+ * gets rejected again, and redirects right back here — an invisible loop that
+ * looks like the back button is broken. Replacing collapses the gated page
+ * and this redirect into one entry, so back correctly skips over it.
  */
 function redirectToSubscription() {
   if (window.location.pathname.replace(BASE, "") === "/subscription") return;
   const target = `${BASE}/subscription`;
-  window.history.pushState(null, "", target);
+  window.history.replaceState(window.history.state, "", target);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

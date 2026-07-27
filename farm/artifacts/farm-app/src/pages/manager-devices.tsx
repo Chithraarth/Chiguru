@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, apiMutate, ApiError } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { DIAL_CODES, flagEmoji } from "@/lib/dial-codes";
 
 interface ManagerRow {
   id: number;
@@ -24,6 +25,7 @@ export default function ManagerDevices() {
   const [, setLocation] = useLocation();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
+  const [dialCode, setDialCode] = useState("+91");
   const [phone, setPhone] = useState("");
 
   const { data: managers = [], isLoading } = useQuery<ManagerRow[]>({
@@ -32,7 +34,7 @@ export default function ManagerDevices() {
   });
 
   const addManager = useMutation({
-    mutationFn: () => apiMutate<ManagerRow>("POST", "/managers", { name: name.trim(), phone: phone.trim() }),
+    mutationFn: () => apiMutate<ManagerRow>("POST", "/managers", { name: name.trim(), phone: `${dialCode}${phone.trim()}` }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["managers"] });
       setAdding(false);
@@ -141,8 +143,28 @@ export default function ManagerDevices() {
                   <Input value={name} onChange={(e) => setName(e.target.value)} className="rounded-xl h-11 mt-1" placeholder="e.g. Ramesh" />
                 </div>
                 <div>
-                  <Label className="text-xs text-gray-500">Phone number (with country code)</Label>
-                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-xl h-11 mt-1" placeholder="+919876543210" />
+                  <Label className="text-xs text-gray-500">Phone number</Label>
+                  <div className="flex gap-2 mt-1">
+                    <select
+                      value={dialCode}
+                      onChange={(e) => setDialCode(e.target.value)}
+                      className="rounded-xl h-11 border border-input bg-transparent px-2 text-sm shrink-0 max-w-28 truncate"
+                      aria-label="Country code"
+                    >
+                      {DIAL_CODES.map((d) => (
+                        <option key={`${d.iso2}-${d.dial}`} value={d.dial}>
+                          {flagEmoji(d.iso2)} {d.name} ({d.dial})
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="rounded-xl h-11 flex-1"
+                      placeholder="98765 43210"
+                    />
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1 h-11 rounded-xl" onClick={() => setAdding(false)}>
