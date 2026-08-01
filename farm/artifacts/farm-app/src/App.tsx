@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -14,6 +14,7 @@ import { lazyWithReload } from "@/lib/lazy-with-reload";
 import { SidebarProvider } from "@/lib/sidebar-context";
 import { Sidebar } from "@/components/sidebar";
 import SignInPage from "@/pages/sign-in";
+import Landing from "@/pages/landing";
 import NotFound from "@/pages/not-found";
 
 const Dashboard = lazyWithReload(() => import("@/pages/dashboard"));
@@ -133,6 +134,15 @@ function Router() {
   );
 }
 
+// Signed-out visitors see the marketing landing page first; any "Sign In" /
+// "Start Free" CTA on it hands off to the real sign-in form.
+function UnauthenticatedGate() {
+  const [showSignIn, setShowSignIn] = useState(false);
+
+  if (!showSignIn) return <Landing onGetStarted={() => setShowSignIn(true)} />;
+  return <SignInPage />;
+}
+
 // Mandatory sign-in gate: every route above is unreachable until Firebase
 // reports a signed-in user. No onboarding/estate/subscription step is forced
 // here — a fresh Owner lands straight on the Dashboard, which shows its own
@@ -141,7 +151,7 @@ function Gated() {
   const { user, loading } = useAuth();
 
   if (loading) return <PageLoader />;
-  if (!user) return <SignInPage />;
+  if (!user) return <UnauthenticatedGate />;
 
   return (
     <ErrorBoundary>
