@@ -29,10 +29,14 @@ server {
     # matches the 20mb body limit the api-server itself accepts.
     client_max_body_size 25m;
 
-    # manager-app static build (own base path, own workspace)
+    # manager-web (its own container, own image — chiguru-manager-web)
     location /manager/ {
-        alias /usr/share/nginx/html/manager/;
-        try_files $uri $uri/ /manager/index.html;
+        proxy_pass http://manager-web:80/manager/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
     # api-server
@@ -45,9 +49,13 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
-    # farm-app static build (root)
+    # owner-web (its own container, own image — chiguru-owner-web)
     location / {
-        root /usr/share/nginx/html;
-        try_files $uri $uri/ /index.html;
+        proxy_pass http://owner-web:80/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
