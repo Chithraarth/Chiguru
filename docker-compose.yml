@@ -37,11 +37,29 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
+  owner-web:
+    image: ${DOCKERHUB_USER}/chiguru-owner-web:latest
+    restart: unless-stopped
+    networks:
+      - chiguru-net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  manager-web:
+    image: ${DOCKERHUB_USER}/chiguru-manager-web:latest
+    restart: unless-stopped
+    networks:
+      - chiguru-net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   nginx:
     image: ${DOCKERHUB_USER}/chiguru-nginx:latest
     restart: unless-stopped
     depends_on:
       - api-server
+      - owner-web
+      - manager-web
     environment:
       DOMAIN: ${DOMAIN}
     ports:
@@ -56,8 +74,9 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   # Polls Docker Hub every 5 minutes; only touches containers labeled
-  # watchtower.enable=true above (api-server, nginx) — leaves postgres and
-  # certbot alone since those images aren't rebuilt by the CI pipeline.
+  # watchtower.enable=true above (api-server, owner-web, manager-web, nginx)
+  # — leaves postgres and certbot alone since those images aren't rebuilt by
+  # any of the split repos' CI pipelines.
   watchtower:
     image: containrrr/watchtower:latest
     restart: unless-stopped
