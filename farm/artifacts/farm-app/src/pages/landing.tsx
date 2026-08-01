@@ -1080,6 +1080,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
     const fieldCanvas = root.querySelector<HTMLCanvasElement>("#fieldCanvas");
     const fieldCountEl = root.querySelector<HTMLElement>("#fieldCount");
     if (fieldCanvas && fieldCountEl) {
+      const countEl = fieldCountEl;
       const ctx = fieldCanvas.getContext("2d")!;
       const W = fieldCanvas.width;
       const H = fieldCanvas.height;
@@ -1186,7 +1187,7 @@ export default function Landing({ onGetStarted }: LandingProps) {
           }
         });
 
-        fieldCountEl.textContent = detected >= n ? `${n} workers counted` : `Detecting… ${detected}/${n}`;
+        countEl.textContent = detected >= n ? `${n} workers counted` : `Detecting… ${detected}/${n}`;
       }
 
       let rafId2: number | null = null;
